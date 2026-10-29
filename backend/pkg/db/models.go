@@ -5,6 +5,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"time"
+	"errors"
+)
+
+var (
+	ErrValidation = errors.New("db: validation failed")
+	ErrNotFound   = errors.New("db: record not found")
 )
 
 type Task struct {
