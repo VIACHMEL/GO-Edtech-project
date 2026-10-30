@@ -27,6 +27,7 @@ const selectTaskColumns = `
 	id, source_url, source_site, subject, task_number, content_text, answer,
 	year, exam_type, task_type, solution, metadata, content_hash, created_at, updated_at
 `
+const DEFAULT_TASK_LIMIT = 20
 
 //Проверяет наличие обязательных полей и генерирует хеш, возрващает ошибку
 func validateAndPrepare(t *Task) error {
@@ -45,6 +46,10 @@ func validateAndPrepare(t *Task) error {
 	}
 	if t.ContentText == "" {
 		return fmt.Errorf("%w: content_text is required", ErrValidation)
+	}
+
+	if t.TaskNumber < 0 {
+		return fmt.Errorf("%w: task_number cannot be negative", ErrValidation)
 	}
 
 	if t.Metadata == nil {
@@ -170,6 +175,7 @@ func (db *DB) AddTasks(ctx context.Context, tasks []*Task) error {
 	return nil
 }
 
+// получить задачу по ID
 func (db *DB) GetTask(ctx context.Context, id int64) (*Task, error) {
 	query := `SELECT ` + selectTaskColumns + ` FROM tasks WHERE id = $1`
 
@@ -185,6 +191,7 @@ func (db *DB) GetTask(ctx context.Context, id int64) (*Task, error) {
 	return task, nil
 }
 
+// получить набор задач по ID
 func (db *DB) GetTasksByIDs(ctx context.Context, ids []int64) ([]*Task, error) {
 	if len(ids) == 0 {
 		return []*Task{}, nil
@@ -195,6 +202,39 @@ func (db *DB) GetTasksByIDs(ctx context.Context, ids []int64) ([]*Task, error) {
 	rows, err := db.Pool.Query(ctx, query, ids)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tasks by ids: %w", err)
+	}
+	defer rows.Close()
+
+	return rowsToTasks(rows)
+}
+
+// Возвращает случайные задания, соответствующие фильтру
+func (db *DB) ListTasks(ctx context.Context, filter TaskFilter) ([]*Task, error) {
+	if filter.Limit <= 0 || filter.Limit > 100 {
+		filter.Limit = 20 // Дефолтный лимит, если фронтенд не передал
+	}
+	
+	query := `
+		SELECT ` + selectTaskColumns + `
+		FROM tasks
+		WHERE 
+			($1 = '' OR subject = $1)
+			AND ($2 = 0 OR year = $2)
+			AND ($3 = 0 OR task_number = $3)
+			AND ($4 = '' OR task_type = $4)
+		ORDER BY RANDOM() 
+		LIMIT $5
+	`
+
+	rows, err := db.Pool.Query(ctx, query, 
+		filter.Subject, 
+		filter.Year, 
+		filter.TaskNumber, 
+		filter.TaskType, 
+		filter.Limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tasks: %w", err)
 	}
 	defer rows.Close()
 

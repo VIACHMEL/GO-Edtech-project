@@ -42,3 +42,12 @@ func generateHash(t *Task) string {
 	hash := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(hash[:])
 }
+
+type TaskFilter struct {
+	Subject    string
+	Year       int
+	TaskNumber int
+	TaskType   string
+	
+	Limit      int    // Кол-во возвращаемых задач
+}
