@@ -36,5 +36,4 @@ checkpoints/
 *.pth
 *.log
 
-
-/backend/kompege-progress-*
+*.txt
