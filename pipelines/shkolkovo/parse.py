@@ -10,10 +10,11 @@ from urllib.parse import urljoin, urlparse
 
 
 class TasksParser(HTMLParser):
-    def __init__(self, base_url, task_number):
+    def __init__(self, base_url, task_number, exam_type="oge"):
         super().__init__(convert_charrefs=True)
         self.base_url = base_url
         self.task_number = task_number
+        self.exam_type = exam_type
         self.stack = []
         self.card = None
         self.cards = []
@@ -25,10 +26,12 @@ class TasksParser(HTMLParser):
         classes = attrs.get("class", "").split()
         if tag == "div" and any(c.startswith("ExerciseStyles_exercise__") for c in classes):
             if self.card is None and not any("__main" in c or "__text" in c for c in classes):
-                self.card = {"depth": len(self.stack), "text": [], "images": [], "answer": [], "url": ""}
+                self.card = {"depth": len(self.stack), "text": [], "images": [], "local_images": [], "answer": [], "url": ""}
         if self.card is not None:
-            if tag == "a" and re.fullmatch(r"/catalog/\d+/\d+/?", attrs.get("href", "")):
-                self.card["url"] = urljoin(self.base_url, attrs["href"])
+            href = urljoin(self.base_url, attrs.get("href", ""))
+            parsed_href = urlparse(href)
+            if tag == "a" and parsed_href.hostname == "3.shkolkovo.online" and re.fullmatch(r"/catalog/\d+/\d+/?", parsed_href.path):
+                self.card["url"] = href
             if any(c.startswith("ExerciseStyles_exercise__text__") for c in classes):
                 self.question_depth = len(self.stack)
             if any(c.startswith("AnswerOldBlock_shortAnswer__") for c in classes):
@@ -36,7 +39,10 @@ class TasksParser(HTMLParser):
             if self.question_depth is not None and tag == "img":
                 src = attrs.get("src", "").strip()
                 if src:
-                    self.card["images"].append(urljoin(self.base_url, src))
+                    if urlparse(src).scheme in ("http", "https") or src.startswith("/"):
+                        self.card["images"].append(urljoin(self.base_url, src))
+                    else:
+                        self.card["local_images"].append(src)
                 alt = attrs.get("alt", "").strip()
                 if alt:
                     self.card["text"].append(" " + alt + " ")
@@ -85,7 +91,9 @@ class TasksParser(HTMLParser):
                 skipped.append({"source_url": url, "missing": [name for name, value in (("source_url", url), ("content_text", content), ("answer", answer)) if not value]})
                 continue
             metadata = {"images": list(dict.fromkeys(card["images"]))} if card["images"] else {}
-            valid.append({"source_url": url, "source_site": urlparse(url).hostname, "subject": "math", "exam_type": "oge", "task_number": self.task_number, "task_type": "short_answer", "content_text": content, "answer": answer, "metadata": metadata})
+            if card["local_images"]:
+                metadata["local_images"] = list(dict.fromkeys(card["local_images"]))
+            valid.append({"source_url": url, "source_site": urlparse(url).hostname, "subject": "math", "exam_type": self.exam_type, "task_number": self.task_number, "task_type": "short_answer", "content_text": content, "answer": answer, "metadata": metadata})
         return valid, skipped
 
 
@@ -94,12 +102,13 @@ def main():
     arg.add_argument("--html", required=True, help="HTML сохранённой после загрузки страницы")
     arg.add_argument("--url", required=True, help="URL этой страницы каталога")
     arg.add_argument("--number", required=True, type=int, choices=range(1, 20), help="Номер задания с кратким ответом (1–19)")
+    arg.add_argument("--exam", choices=("ege", "oge"), default="oge", help="Тип экзамена")
     arg.add_argument("--output", required=True, help="Куда сохранить JSON с валидными заданиями")
     args = arg.parse_args()
     parsed = urlparse(args.url)
     if parsed.scheme != "https" or parsed.hostname != "3.shkolkovo.online":
         arg.error("URL должен принадлежать https://3.shkolkovo.online")
-    parser = TasksParser(args.url, args.number)
+    parser = TasksParser(args.url, args.number, args.exam)
     parser.feed(Path(args.html).read_text(encoding="utf-8"))
     records, skipped = parser.records()
     if not parser.cards:

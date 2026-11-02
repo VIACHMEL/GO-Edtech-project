@@ -45,8 +45,11 @@ func run() error {
 	tasks := make([]*db.Task, 0, len(records))
 	for i, r := range records {
 		u, err := url.Parse(r.SourceURL)
-		if err != nil || u.Scheme != "https" || u.Hostname() != "3.shkolkovo.online" || r.SourceSite != "3.shkolkovo.online" || r.Subject != "math" || r.ExamType != "oge" || r.TaskNumber < 1 || r.TaskNumber > 25 || strings.TrimSpace(r.ContentText) == "" || strings.TrimSpace(r.Answer) == "" {
+		if err != nil || u.Scheme != "https" || u.Hostname() != "3.shkolkovo.online" || r.SourceSite != "3.shkolkovo.online" || r.Subject != "math" || (r.ExamType != "oge" && r.ExamType != "ege") || r.TaskNumber < 1 || r.TaskNumber > 25 || strings.TrimSpace(r.ContentText) == "" || strings.TrimSpace(r.Answer) == "" {
 			return fmt.Errorf("строка %d: запись не соответствует контракту ОГЭ", i+1)
+		}
+		if _, hasLocal := r.Metadata["local_images"]; hasLocal && *write {
+			return fmt.Errorf("строка %d: локальные изображения нужно сначала сохранить в доступное хранилище", i+1)
 		}
 		tasks = append(tasks, &db.Task{SourceURL: r.SourceURL, SourceSite: r.SourceSite, Subject: r.Subject, ExamType: r.ExamType, TaskNumber: r.TaskNumber, TaskType: r.TaskType, ContentText: r.ContentText, Answer: r.Answer, Metadata: r.Metadata})
 	}
