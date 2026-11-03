@@ -5,39 +5,49 @@ import (
 	"fmt"
 	"strings"
 	"errors"
+	"regexp"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
-const insertTaskQuery = `
-		INSERT INTO tasks (
-			source_url, source_site, subject, task_number, content_text, answer,
-			year, exam_type, task_type, solution, metadata, content_hash
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		ON CONFLICT (source_url, content_hash) 
-		DO UPDATE SET 
-			answer = EXCLUDED.answer,
-			solution = EXCLUDED.solution,
-			metadata = EXCLUDED.metadata,
-			updated_at = now()
-		RETURNING id;
+const upsertTaskQuery = `
+	WITH upserted_task AS (
+        INSERT INTO tasks (source_url, source_site, subject, task_number,
+                           year, exam_type, task_type, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (source_url) DO UPDATE SET
+            metadata = EXCLUDED.metadata,
+            updated_at = now()
+        RETURNING id
+    ),
+    inserted_version AS (
+        INSERT INTO task_versions
+            (task_id, content_text, answer, solution, content_hash, version_number)
+        SELECT
+            ut.id, $9, $10, $11, $12,
+            COALESCE((SELECT MAX(version_number) FROM task_versions
+                      WHERE task_id = ut.id), 0) + 1
+        FROM upserted_task ut
+        ON CONFLICT (task_id, content_hash) DO UPDATE SET
+            answer = EXCLUDED.answer,
+            solution = EXCLUDED.solution
+        RETURNING task_id, id, version_number, (xmax = 0) AS was_created
+    )
+    SELECT task_id, id, version_number, was_created FROM inserted_version;
 `
 
 const selectTaskColumns = `
-	id, source_url, source_site, subject, task_number, content_text, answer,
-	year, exam_type, task_type, solution, metadata, content_hash, created_at, updated_at
+	t.id, t.source_url, t.source_site, t.subject, t.task_number,
+	t.year, t.exam_type, t.task_type, t.metadata, t.current_version_id,
+	t.created_at, t.updated_at,
+	v.content_text, v.answer, v.solution, v.content_hash, v.version_number
 `
-const DEFAULT_TASK_LIMIT = 20
+const defaultTaskLimit = 20
+const minFilterLimit = 0
+const maxFilterLimit = 100
 
-//Проверяет наличие обязательных полей и генерирует хеш, возрващает ошибку
-func validateAndPrepare(t *Task) error {
-	t.SourceURL = strings.TrimSpace(t.SourceURL)
-	t.SourceSite = strings.TrimSpace(t.SourceSite)
-	t.Subject = strings.TrimSpace(t.Subject)
-	t.ContentText = strings.TrimSpace(t.ContentText)
-	t.Answer = strings.TrimSpace(t.Answer)
-	t.Solution = strings.TrimSpace(t.Solution)
-
+func validateTask(t *Task) error {
 	if t.SourceURL == "" {
 		return fmt.Errorf("%w: source_url is required", ErrValidation)
 	}
@@ -51,36 +61,50 @@ func validateAndPrepare(t *Task) error {
 	if t.TaskNumber < 0 {
 		return fmt.Errorf("%w: task_number cannot be negative", ErrValidation)
 	}
+	return nil
+}
+
+// подводит текст к единому виду и генерирует хеш
+func prepareTask(t *Task) {
+	t.SourceURL = strings.TrimSpace(t.SourceURL)
+	t.SourceSite = strings.TrimSpace(t.SourceSite)
+	t.Subject = strings.TrimSpace(t.Subject)
+	t.ContentText = strings.TrimSpace(t.ContentText)
+	t.Answer = strings.TrimSpace(t.Answer)
+	t.Solution = strings.TrimSpace(t.Solution)
 
 	if t.Metadata == nil {
 		t.Metadata = make(map[string]any)
 	}
 
 	t.ContentHash = generateHash(t)
-	return nil
 }	
 
 //Проделывает валидацию для пачки задач
 func validateAndPrepareAllTasks(tasks []*Task) error {
-	for _, t := range tasks {
-		if err := validateAndPrepare(t); err != nil {
-			return fmt.Errorf("validation failed for task %s: %w", t.SourceURL, err)
-		}
-	}
-	return nil
+    for _, t := range tasks {
+        prepareTask(t)                           
+        if err := validateTask(t); err != nil {
+            return fmt.Errorf("validation failed for task %s: %w", t.SourceURL, err)
+        }
+    }
+    return nil
 }
 
 func buildTaskArgs(t *Task) []any {
 	return []any{
-		t.SourceURL, t.SourceSite, t.Subject, t.TaskNumber, t.ContentText, t.Answer,
-		t.Year, t.ExamType, t.TaskType, t.Solution, t.Metadata, t.ContentHash,
+		// Для таблицы tasks ($1 - $8)
+		t.SourceURL, t.SourceSite, t.Subject, t.TaskNumber,
+		t.Year, t.ExamType, t.TaskType, t.Metadata,
+		// Для таблицы task_versions ($9 - $12)
+		t.ContentText, t.Answer, t.Solution, t.ContentHash,
 	}
 }
 
 func buildBatch(tasks []*Task) *pgx.Batch {
 	batch := &pgx.Batch{}
 	for _, t := range tasks {
-		batch.Queue(insertTaskQuery, buildTaskArgs(t)...)
+		batch.Queue(upsertTaskQuery, buildTaskArgs(t)...)
 	}
 	return batch
 }
@@ -103,8 +127,12 @@ func executeBatch(ctx context.Context, transaction pgx.Tx, batch *pgx.Batch, cou
 func scanTask(row pgx.Row) (*Task, error) {
 	var t Task
 	err := row.Scan(
-		&t.ID, &t.SourceURL, &t.SourceSite, &t.Subject, &t.TaskNumber, &t.ContentText, &t.Answer,
-		&t.Year, &t.ExamType, &t.TaskType, &t.Solution, &t.Metadata, &t.ContentHash, &t.CreatedAt, &t.UpdatedAt,
+		// Из таблицы tasks (1-12)
+		&t.ID, &t.SourceURL, &t.SourceSite, &t.Subject, &t.TaskNumber,
+		&t.Year, &t.ExamType, &t.TaskType, &t.Metadata, &t.CurrentVersionID,
+		&t.CreatedAt, &t.UpdatedAt,
+		// Из таблицы task_versions (13-17)
+		&t.ContentText, &t.Answer, &t.Solution, &t.ContentHash, &t.VersionNumber,
 	)
 	if err != nil {
 		return nil, err
@@ -130,19 +158,76 @@ func rowsToTasks(rows pgx.Rows) ([]*Task, error) {
 	return tasks, nil
 }
 
-// Добавляет задание и возвращает ID
-func (db *DB) AddTask(ctx context.Context, t *Task) (int64, error) {
-	if err := validateAndPrepare(t); err != nil {
-		return 0, err
-	}
-	
-	var id int64
-	err := db.Pool.QueryRow(ctx, insertTaskQuery, buildTaskArgs(t)...).Scan(&id)
-	if err != nil {
-		return 0, fmt.Errorf("failed to add task: %w", err)
-	}
+var artifactKeyRe = regexp.MustCompile(`^[a-zA-Z0-9_\-]{1,64}$`)
 
-	return id, nil
+func validateArtifactKey(key string) (string, error) {
+    if key == "" {
+        key = "main"
+    }
+    if !artifactKeyRe.MatchString(key) {
+        return key, fmt.Errorf("%w: artifact_key must match [a-zA-Z0-9_-]{1,64}", ErrValidation)
+    }
+    return key, nil
+}
+
+var validArtifactTypes = map[string]bool{
+    ArtifactTypeImage: true, ArtifactTypeSVG: true, ArtifactTypeTikZ: true,
+    ArtifactTypeAttachment: true, ArtifactTypePreview: true,
+}
+
+func validateArtifactType(typ string) error {
+    if !validArtifactTypes[typ] {
+        return fmt.Errorf("%w: unknown artifact type %q", ErrValidation, typ)
+    }
+    return nil
+}
+
+var validArtifactStatuses = map[string]bool{
+    StatusPending: true, StatusDone: true, StatusFailed: true,
+    StatusAbandoned: true, StatusExternal: true,
+}
+
+func validateArtifactStatus(s string) error {
+    if !validArtifactStatuses[s] {
+        return fmt.Errorf("%w: unknown artifact status %q", ErrValidation, s)
+    }
+    return nil
+}
+
+func isUniqueViolation(err error) bool {
+    var pgErr *pgconn.PgError
+    return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// Добавляет задание и возвращает ID
+func (db *DB) AddTask(ctx context.Context, t *Task) (*AddTaskResult, error) {
+    prepareTask(t)
+    if err := validateTask(t); err != nil {
+        return nil, err
+    }
+
+    var res AddTaskResult
+    err := db.Pool.QueryRow(ctx, upsertTaskQuery, buildTaskArgs(t)...).
+        Scan(&res.TaskID, &res.VersionID, &res.VersionNum, &res.WasCreated)
+    if err != nil {
+        // retry на 23505 (unique_violation от параллельной вставки version_number)
+        if isUniqueViolation(err) {
+            for i := 0; i < 3; i++ {
+                err = db.Pool.QueryRow(ctx, upsertTaskQuery, buildTaskArgs(t)...).
+                    Scan(&res.TaskID, &res.VersionID, &res.VersionNum, &res.WasCreated)
+                if err == nil {
+                    break
+                }
+                if !isUniqueViolation(err) {
+                    break
+                }
+            }
+        }
+        if err != nil {
+            return nil, fmt.Errorf("add task: %w", err)
+        }
+    }
+    return &res, nil
 }
 
 // сохраняет пачку заданий в одной транзакции
@@ -177,7 +262,12 @@ func (db *DB) AddTasks(ctx context.Context, tasks []*Task) error {
 
 // получить задачу по ID
 func (db *DB) GetTask(ctx context.Context, id int64) (*Task, error) {
-	query := `SELECT ` + selectTaskColumns + ` FROM tasks WHERE id = $1`
+	query := `
+		SELECT ` + selectTaskColumns + `
+		FROM tasks t
+		JOIN task_versions v ON t.current_version_id = v.id
+		WHERE t.id = $1
+	`
 
 	task, err := scanTask(db.Pool.QueryRow(ctx, query, id))
 	
@@ -197,7 +287,12 @@ func (db *DB) GetTasksByIDs(ctx context.Context, ids []int64) ([]*Task, error) {
 		return []*Task{}, nil
 	}
 
-	query := `SELECT ` + selectTaskColumns + ` FROM tasks WHERE id = ANY($1)`
+	query := `
+		SELECT ` + selectTaskColumns + `
+		FROM tasks t
+		JOIN task_versions v ON t.current_version_id = v.id
+		WHERE t.id = ANY($1)
+	`
 	
 	rows, err := db.Pool.Query(ctx, query, ids)
 	if err != nil {
@@ -210,18 +305,19 @@ func (db *DB) GetTasksByIDs(ctx context.Context, ids []int64) ([]*Task, error) {
 
 // Возвращает случайные задания, соответствующие фильтру
 func (db *DB) ListTasks(ctx context.Context, filter TaskFilter) ([]*Task, error) {
-	if filter.Limit <= 0 || filter.Limit > 100 {
-		filter.Limit = 20 // Дефолтный лимит, если фронтенд не передал
+	if filter.Limit <= minFilterLimit || filter.Limit > maxFilterLimit {
+		filter.Limit = defaultTaskLimit
 	}
 	
 	query := `
 		SELECT ` + selectTaskColumns + `
-		FROM tasks
+		FROM tasks t
+		JOIN task_versions v ON t.current_version_id = v.id
 		WHERE 
-			($1 = '' OR subject = $1)
-			AND ($2 = 0 OR year = $2)
-			AND ($3 = 0 OR task_number = $3)
-			AND ($4 = '' OR task_type = $4)
+			($1 = '' OR t.subject = $1)
+			AND ($2 = 0 OR t.year = $2)
+			AND ($3 = 0 OR t.task_number = $3)
+			AND ($4 = '' OR t.task_type = $4)
 		ORDER BY RANDOM() 
 		LIMIT $5
 	`
@@ -239,4 +335,214 @@ func (db *DB) ListTasks(ctx context.Context, filter TaskFilter) ([]*Task, error)
 	defer rows.Close()
 
 	return rowsToTasks(rows)
+}
+
+// Фиксирует намерение сохранить артефакт
+// Вызывать ДО скачивания/рендера
+func (db *DB) CreatePendingArtifact(ctx context.Context,
+	versionID int64, typ, key, externalURL, originalFilename string) error {
+	key, err := validateArtifactKey(key)
+	if err != nil {
+		return err
+	}
+	if err := validateArtifactType(typ); err != nil {
+		return err
+	}
+
+	query := `
+        INSERT INTO task_artifacts
+            (task_version_id, type, artifact_key, external_url,
+             original_filename, status, storage_type, error_message)
+        VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), 'pending',
+                CASE WHEN $4 <> '' THEN 'external' ELSE 'local' END, '')
+        ON CONFLICT (task_version_id, type, artifact_key) DO UPDATE SET
+            external_url      = EXCLUDED.external_url,
+            original_filename = COALESCE(EXCLUDED.original_filename,
+                                         task_artifacts.original_filename),
+            status            = CASE
+                                    WHEN task_artifacts.status = 'done'
+                                     AND task_artifacts.checksum <> ''
+                                    THEN 'done'
+                                    ELSE 'pending'
+                                END,
+            error_message     = '',
+            updated_at        = now()
+    `
+	_, err = db.Pool.Exec(ctx, query, versionID, typ, key, externalURL, originalFilename)
+	if err != nil {
+		return fmt.Errorf("create pending artifact: %w", err)
+	}
+	return nil
+}
+
+// Отмечает артефакт готовым 
+// Вызывать ПОСЛЕ атомарного перемещения файла в финальное место
+// Если нужно будет брать ресурс извне, отправлять в MarkExternal
+func (db *DB) CompleteArtifact(ctx context.Context,
+	versionID int64, typ, key, filePath, mimeType string,
+	fileSize int64, checksum string) error {
+	key, err := validateArtifactKey(key)
+	if err != nil {
+		return err
+	}
+	if filePath == "" {
+		return fmt.Errorf("%w: file_path is required for local artifacts", ErrValidation)
+	}
+	if checksum == "" {
+		return fmt.Errorf("%w: checksum is required", ErrValidation)
+	}
+
+	query := `
+        UPDATE task_artifacts
+        SET file_path     = $4,
+            mime_type     = $5,
+            file_size     = $6,
+            checksum      = $7,
+            storage_type  = 'local',
+            status        = 'done',
+            error_message = '',
+            updated_at    = now()
+        WHERE task_version_id = $1 AND type = $2 AND artifact_key = $3
+    `
+	tag, err := db.Pool.Exec(ctx, query, versionID, typ, key,
+		filePath, mimeType, fileSize, checksum)
+	if err != nil {
+		return fmt.Errorf("complete artifact: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: artifact %s/%s for version %d",
+			ErrNotFound, typ, key, versionID)
+	}
+	return nil
+}
+// Обновляет статус конкретного артефакта
+func (db *DB) UpdateArtifactStatus(ctx context.Context,
+	versionID int64, typ, key, status string) error {
+	key, err := validateArtifactKey(key)
+	if err != nil {
+		return err
+	}
+	if err := validateArtifactStatus(status); err != nil {
+		return err
+	}
+
+	query := `
+        UPDATE task_artifacts
+        SET status        = $1,
+            error_message = CASE WHEN $1 = 'failed' THEN error_message ELSE '' END,
+            updated_at    = now()
+        WHERE task_version_id = $2 AND type = $3 AND artifact_key = $4
+    `
+	tag, err := db.Pool.Exec(ctx, query, status, versionID, typ, key)
+	if err != nil {
+		return fmt.Errorf("failed to update artifact status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: artifact %s/%s for version %d",
+			ErrNotFound, typ, key, versionID)
+	}
+	return nil
+}
+
+// Пометить что файл хранится где-то в интернете
+// Для видео/аудио/больших файлов
+func (db *DB) MarkExternal(ctx context.Context,
+	versionID int64, typ, key, externalURL, mimeType string) error {
+	key, err := validateArtifactKey(key)
+	if err != nil {
+		return err
+	}
+	if err := validateArtifactType(typ); err != nil {
+		return err
+	}
+	if externalURL == "" {
+		return fmt.Errorf("%w: external_url is required", ErrValidation)
+	}
+
+	query := `
+        UPDATE task_artifacts
+        SET storage_type  = 'external',
+            file_path     = NULL,
+            external_url  = $4,
+            mime_type     = $5,
+            status        = 'external',
+            error_message = '',
+            updated_at    = now()
+        WHERE task_version_id = $1 AND type = $2 AND artifact_key = $3
+    `
+	tag, err := db.Pool.Exec(ctx, query, versionID, typ, key, externalURL, mimeType)
+	if err != nil {
+		return fmt.Errorf("mark external: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: artifact %s/%s for version %d",
+			ErrNotFound, typ, key, versionID)
+	}
+	return nil
+}
+
+// Вызывать при любой ошибке
+func (db *DB) FailArtifact(ctx context.Context,
+	versionID int64, typ, key, errMsg string) error {
+	key, err := validateArtifactKey(key)
+	if err != nil {
+		return err
+	}
+
+	query := `
+        UPDATE task_artifacts
+        SET status        = 'failed',
+            error_message = $4,
+            updated_at    = now()
+        WHERE task_version_id = $1 AND type = $2 AND artifact_key = $3
+    `
+	tag, err := db.Pool.Exec(ctx, query, versionID, typ, key, errMsg)
+	if err != nil {
+		return fmt.Errorf("fail artifact: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: artifact %s/%s for version %d",
+			ErrNotFound, typ, key, versionID)
+	}
+	return nil
+}
+
+// Достает все артефакты для конкретной версии задачи
+func (db *DB) GetArtifactsByVersionID(ctx context.Context, versionID int64) ([]*TaskArtifact, error) {
+	query := `
+        SELECT id, task_version_id, type, artifact_key,
+               COALESCE(file_path, ''), COALESCE(external_url, ''),
+               COALESCE(original_filename, ''),
+               mime_type, file_size, checksum, storage_type, status,
+               error_message, created_at, updated_at
+        FROM task_artifacts
+        WHERE task_version_id = $1
+        ORDER BY type, artifact_key
+    `
+	rows, err := db.Pool.Query(ctx, query, versionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get artifacts: %w", err)
+	}
+	defer rows.Close()
+
+	var artifacts []*TaskArtifact
+	for rows.Next() {
+		var a TaskArtifact
+		err := rows.Scan(
+			&a.ID, &a.TaskVersionID, &a.Type, &a.ArtifactKey,
+			&a.FilePath, &a.ExternalURL, &a.OriginalFilename,
+			&a.MimeType, &a.FileSize, &a.Checksum, &a.StorageType, &a.Status,
+			&a.ErrorMessage, &a.CreatedAt, &a.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan artifact: %w", err)
+		}
+		artifacts = append(artifacts, &a)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error during artifacts iteration: %w", err)
+	}
+
+	return artifacts, nil
 }
