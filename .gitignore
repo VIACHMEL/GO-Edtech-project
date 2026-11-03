@@ -40,3 +40,4 @@ checkpoints/
 .playwright-deps/
 capture/
 pipelines/shkolkovo/batch_local.py
+*.txt
