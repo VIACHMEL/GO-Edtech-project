@@ -35,3 +35,5 @@ checkpoints/
 *.pt
 *.pth
 *.log
+
+*.txt
