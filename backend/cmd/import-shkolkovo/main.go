@@ -21,6 +21,7 @@ type record struct {
 	TaskType    string         `json:"task_type"`
 	ContentText string         `json:"content_text"`
 	Answer      string         `json:"answer"`
+	Solution    string         `json:"solution"`
 	Metadata    map[string]any `json:"metadata"`
 }
 
@@ -46,12 +47,15 @@ func run() error {
 	for i, r := range records {
 		u, err := url.Parse(r.SourceURL)
 		if err != nil || u.Scheme != "https" || u.Hostname() != "3.shkolkovo.online" || r.SourceSite != "3.shkolkovo.online" || r.Subject != "math" || (r.ExamType != "oge" && r.ExamType != "ege") || r.TaskNumber < 1 || r.TaskNumber > 25 || strings.TrimSpace(r.ContentText) == "" || strings.TrimSpace(r.Answer) == "" {
-			return fmt.Errorf("строка %d: запись не соответствует контракту ОГЭ", i+1)
+			return fmt.Errorf("строка %d: запись не соответствует контракту Школково", i+1)
 		}
 		if _, hasLocal := r.Metadata["local_images"]; hasLocal && *write {
 			return fmt.Errorf("строка %d: локальные изображения нужно сначала сохранить в доступное хранилище", i+1)
 		}
-		tasks = append(tasks, &db.Task{SourceURL: r.SourceURL, SourceSite: r.SourceSite, Subject: r.Subject, ExamType: r.ExamType, TaskNumber: r.TaskNumber, TaskType: r.TaskType, ContentText: r.ContentText, Answer: r.Answer, Metadata: r.Metadata})
+		if _, hasLocal := r.Metadata["solution_local_images"]; hasLocal && *write {
+			return fmt.Errorf("строка %d: локальные изображения решения нужно сначала сохранить в доступное хранилище", i+1)
+		}
+		tasks = append(tasks, &db.Task{SourceURL: r.SourceURL, SourceSite: r.SourceSite, Subject: r.Subject, ExamType: r.ExamType, TaskNumber: r.TaskNumber, TaskType: r.TaskType, ContentText: r.ContentText, Answer: r.Answer, Solution: r.Solution, Metadata: r.Metadata})
 	}
 	if !*write {
 		fmt.Printf("Проверено заданий: %d. В БД ничего не записано.\n", len(tasks))

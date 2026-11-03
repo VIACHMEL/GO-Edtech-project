@@ -20,13 +20,14 @@ class TasksParser(HTMLParser):
         self.cards = []
         self.question_depth = None
         self.answer_depth = None
+        self.solution_depth = None
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
         classes = attrs.get("class", "").split()
         if tag == "div" and any(c.startswith("ExerciseStyles_exercise__") for c in classes):
             if self.card is None and not any("__main" in c or "__text" in c for c in classes):
-                self.card = {"depth": len(self.stack), "text": [], "images": [], "local_images": [], "answer": [], "url": ""}
+                self.card = {"depth": len(self.stack), "text": [], "images": [], "local_images": [], "answer": [], "url": "", "solution": [], "solution_images": [], "solution_local_images": []}
         if self.card is not None:
             href = urljoin(self.base_url, attrs.get("href", ""))
             parsed_href = urlparse(href)
@@ -36,6 +37,8 @@ class TasksParser(HTMLParser):
                 self.question_depth = len(self.stack)
             if any(c.startswith("AnswerOldBlock_shortAnswer__") for c in classes):
                 self.answer_depth = len(self.stack)
+            if "exercise__solution-text" in classes:
+                self.solution_depth = len(self.stack)
             if self.question_depth is not None and tag == "img":
                 src = attrs.get("src", "").strip()
                 if src:
@@ -48,6 +51,16 @@ class TasksParser(HTMLParser):
                     self.card["text"].append(" " + alt + " ")
             if self.question_depth is not None and tag in ("p", "div", "br", "li"):
                 self.card["text"].append(" ")
+            if self.solution_depth is not None and tag == "img":
+                src = attrs.get("src", "").strip()
+                if src:
+                    key = "solution_images" if urlparse(src).scheme in ("http", "https") or src.startswith("/") else "solution_local_images"
+                    self.card[key].append(urljoin(self.base_url, src) if key == "solution_images" else src)
+                alt = attrs.get("alt", "").strip()
+                if alt:
+                    self.card["solution"].append(" " + alt + " ")
+            if self.solution_depth is not None and tag in ("p", "div", "br", "li"):
+                self.card["solution"].append(" ")
         if tag not in {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}:
             self.stack.append(tag)
 
@@ -66,6 +79,8 @@ class TasksParser(HTMLParser):
                 self.question_depth = None
             if self.answer_depth == depth:
                 self.answer_depth = None
+            if self.solution_depth == depth:
+                self.solution_depth = None
             if self.card is not None and self.card["depth"] == depth:
                 self.cards.append(self.card)
                 self.card = None
@@ -79,6 +94,8 @@ class TasksParser(HTMLParser):
             self.card["text"].append(text)
         if self.answer_depth is not None:
             self.card["answer"].append(text)
+        if self.solution_depth is not None:
+            self.card["solution"].append(text)
 
     def records(self):
         valid = []
@@ -93,7 +110,14 @@ class TasksParser(HTMLParser):
             metadata = {"images": list(dict.fromkeys(card["images"]))} if card["images"] else {}
             if card["local_images"]:
                 metadata["local_images"] = list(dict.fromkeys(card["local_images"]))
-            valid.append({"source_url": url, "source_site": urlparse(url).hostname, "subject": "math", "exam_type": self.exam_type, "task_number": self.task_number, "task_type": "short_answer", "content_text": content, "answer": answer, "metadata": metadata})
+            if card["solution_images"]:
+                metadata["solution_images"] = list(dict.fromkeys(card["solution_images"]))
+            if card["solution_local_images"]:
+                metadata["solution_local_images"] = list(dict.fromkeys(card["solution_local_images"]))
+            solution = " ".join("".join(card["solution"]).split())
+            if solution.startswith("Решение:"):
+                solution = solution[len("Решение:"):].strip()
+            valid.append({"source_url": url, "source_site": urlparse(url).hostname, "subject": "math", "exam_type": self.exam_type, "task_number": self.task_number, "task_type": "short_answer", "content_text": content, "answer": answer, "solution": solution, "metadata": metadata})
         return valid, skipped
 
 
