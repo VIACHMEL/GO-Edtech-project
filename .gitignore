@@ -36,3 +36,9 @@ checkpoints/
 *.pt
 *.pth
 *.log
+
+# Browser captures, dependencies and local import experiments
+.playwright-deps/
+capture/
+pipelines/shkolkovo/batch_local.py
+*.txt
