@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/VIACHMEL/GO-Edtech-project/backend/pkg/db"
+	"github.com/VIACHMEL/GO-Edtech-project/backend/internal/db"
 )
 
 type KompegeTask struct {

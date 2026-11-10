@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/VIACHMEL/GO-Edtech-project/backend/pkg/db"
+	"github.com/VIACHMEL/GO-Edtech-project/backend/internal/db"
 )
 
 func fetchWithRetry(client *http.Client, id int) (KompegeTask, bool, error) {
