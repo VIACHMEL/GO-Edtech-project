@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/VIACHMEL/GO-Edtech-project/backend/pkg/db"
+	"github.com/VIACHMEL/GO-Edtech-project/backend/internal/db"
 )
 
 var demoYearPattern = regexp.MustCompile(`(?i)демоверсия\s*(20\d{2})`)
