@@ -1,0 +1,55 @@
+{% extends "teacher_base.html" %}
+{% block content %}
+<div class="page-heading">
+    <div><h1>Студенты <span class="heading-count">{{ total }}</span></h1><p class="page-subtitle">Ученики, их занятия и текущие результаты</p></div>
+    <div class="pending-action"><button class="button" type="button" disabled>+ Пригласить</button><span>Приглашения подключим позже</span></div>
+</div>
+
+<form class="search-form" method="get" action="/teacher/students/" role="search">
+    <label class="visually-hidden" for="student-search">Поиск по имени, предмету или группе</label>
+    <div class="search-field"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><input id="student-search" type="search" name="q" value="{{ query }}" placeholder="Поиск по имени, предмету или группе" autocomplete="off"></div>
+    <input type="hidden" name="status" value="{{ status }}">
+    <button class="secondary-button" type="submit">Найти</button>
+    {% if query or status != 'all' %}<a class="text-link" href="/teacher/students/">Сбросить</a>{% endif %}
+</form>
+
+<nav class="filter-tabs" aria-label="Фильтры студентов">
+    {% for tab in tabs %}<a href="{{ tab.url }}" class="filter-tab{% if tab.active %} active{% endif %}"{% if tab.active %} aria-current="page"{% endif %}>{{ tab.label }}<span>{{ tab.count }}</span></a>{% endfor %}
+</nav>
+
+<div class="collection-layout{% if selected_student %} with-inspector{% endif %}">
+    <section class="collection-main" aria-label="Список студентов">
+        <div class="table-scroll">
+            <table class="data-table student-table">
+                <caption class="visually-hidden">Студенты преподавателя</caption>
+                <thead><tr><th scope="col">Студент</th><th scope="col">Последнее занятие</th><th scope="col">Результат</th><th scope="col">Статус</th><th scope="col"><span class="visually-hidden">Подробности</span></th></tr></thead>
+                <tbody>
+                    {% for student in students %}
+                    <tr{% if selected_student.id == student.id %} class="selected-row"{% endif %}>
+                        <td><a class="person-link" href="{{ student.url }}"{% if selected_student.id == student.id %} aria-current="true"{% endif %}><span class="small-avatar" aria-hidden="true">{{ student.initials }}</span><span><span class="cell-title">{{ student.name }}</span><span class="cell-secondary">{{ student.subject }} · {{ student.group }}</span></span></a></td>
+                        <td class="secondary-cell">{{ student.last_lesson }}</td>
+                        <td><span class="result-value">{{ student.progress }}%</span><span class="cell-secondary">Выполнено: {{ student.completed }}</span></td>
+                        <td><span class="entity-status{% if student.needs_attention %} attention-status{% endif %}"><span aria-hidden="true"></span>{{ student.status_label }}</span></td>
+                        <td class="table-action"><a href="{{ student.url }}" aria-label="Открыть сведения: {{ student.name }}">→</a></td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="5" class="table-empty"><h2>Студенты не найдены</h2><p>Измените запрос или выберите другой фильтр.</p><a class="text-link" href="/teacher/students/">Показать всех студентов →</a></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p class="list-caption" role="status">Показано {{ students|length }} из {{ total }} · Демонстрационный список</p>
+    </section>
+
+    {% if selected_student %}
+    <aside class="inspector" aria-labelledby="student-detail-title">
+        <div class="inspector-heading"><span>Об ученике</span><a href="{{ close_url }}" class="close-link" aria-label="Закрыть сведения об ученике">×</a></div>
+        <div class="inspector-identity"><span class="detail-avatar" aria-hidden="true">{{ selected_student.initials }}</span><h2 id="student-detail-title">{{ selected_student.name }}</h2><p>{{ selected_student.subject }}</p></div>
+        <dl class="detail-list"><div><dt>Email</dt><dd>{{ selected_student.email }}</dd></div><div><dt>Группа</dt><dd>{{ selected_student.group }}</dd></div><div><dt>Следующее занятие</dt><dd>{{ selected_student.next_lesson }}</dd></div><div><dt>Выполнено работ</dt><dd>{{ selected_student.completed }}</dd></div><div><dt>Просрочено</dt><dd>{{ selected_student.overdue }}</dd></div></dl>
+        <section class="inspector-section"><h3>Заметка преподавателя</h3><p class="detail-note">{{ selected_student.notes }}</p></section>
+        <section class="inspector-section"><h3>Задания</h3>{% for assignment in selected_student.assignments %}<div class="detail-assignment"><p>{{ assignment.title }}</p><span>{{ assignment.deadline }} · {{ assignment.status }}</span></div>{% empty %}<p class="detail-note">Назначенных заданий нет.</p>{% endfor %}</section>
+        <a class="text-link inspector-link" href="/teacher/reviews/">К проверке работ →</a>
+    </aside>
+    {% endif %}
+</div>
+{% endblock %}

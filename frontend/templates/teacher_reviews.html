@@ -1,0 +1,36 @@
+{% extends "teacher_base.html" %}
+{% load static %}
+{% block content %}
+<div class="page-heading"><div><h1>Проверка работ <span class="heading-count">{{ total }}</span></h1><p class="page-subtitle">Ответы учеников и предварительная оценка</p></div></div>
+<form class="search-form" method="get" role="search"><label class="visually-hidden" for="review-search">Поиск работы</label><div class="search-field"><input id="review-search" type="search" name="q" value="{{ query }}" placeholder="Ученик или название работы"></div><button class="secondary-button" type="submit">Найти</button>{% if query %}<a class="text-link" href="/teacher/reviews/">Сбросить</a>{% endif %}</form>
+<div class="review-layout">
+    <nav class="review-queue" aria-label="Очередь работ">
+        <h2 class="panel-label">Ожидают проверки</h2>
+        {% for review in reviews %}<a class="queue-item{% if selected_review.id == review.id %} selected-row{% endif %}" href="{{ review.url }}"{% if selected_review.id == review.id %} aria-current="true"{% endif %}><span class="cell-title">{{ review.student.name }}</span><span class="cell-secondary">{{ review.title }}</span><span class="queue-date">{{ review.submitted }}</span></a>{% empty %}<p class="empty-state">Работы не найдены.</p>{% endfor %}
+    </nav>
+    {% if selected_review %}
+    <section class="review-answer" aria-labelledby="answer-title">
+        <p class="eyebrow">{{ selected_review.title }} · {{ selected_review.student.name }}</p>
+        <h2 id="answer-title">{{ selected_review.task.title }}</h2>
+        <p class="task-condition">{{ selected_review.task.prompt }}</p>
+        <section class="answer-section"><h3>Ответ ученика</h3><p class="written-answer">{{ selected_review.answer }}</p></section>
+        <section class="answer-section"><h3>Эталон для преподавателя</h3><p class="detail-note">{{ selected_review.expected_answer }}</p></section>
+        <p class="prototype-note">Учебный пример ответа. Оценка из этой демонстрации не публикуется.</p>
+    </section>
+    <aside class="grading-panel" aria-labelledby="grading-title">
+        <h2 class="panel-label" id="grading-title">Предварительная проверка</h2>
+        <div class="score-shortcuts">{% for preset in selected_review.score_presets %}<button class="secondary-button score-preset" type="button" data-score="{{ preset.value }}" disabled>{{ preset.label }}</button>{% endfor %}</div>
+        <form id="review-form">
+            <label class="field-label" for="review-score">Балл · максимум {{ selected_review.task.max_score }}</label>
+            <input class="text-input score-input" id="review-score" type="number" min="0" max="{{ selected_review.task.max_score }}" step="1" required>
+            <label class="field-label" for="review-comment">Комментарий</label>
+            <textarea class="text-input" id="review-comment" rows="6" maxlength="2000" placeholder="Что получилось и что стоит повторить"></textarea>
+            <button class="secondary-button full-width" id="review-preview-button" type="button" disabled>Предпросмотр результата</button>
+        </form>
+        <div class="inline-result" id="review-preview" hidden role="status"></div>
+        <noscript><p class="prototype-note">Для предпросмотра включите JavaScript.</p></noscript>
+    </aside>
+    {% else %}<section class="empty-state"><h2>Очередь пуста</h2><p>Измените запрос поиска.</p></section>{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{% static 'review.js' %}" defer></script>{% endblock %}

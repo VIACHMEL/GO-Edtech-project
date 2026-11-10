@@ -1,0 +1,44 @@
+{% load static %}
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>{{ page_title }} · GO</title>
+    <link rel="stylesheet" href="{% static 'styles.css' %}">
+</head>
+<body>
+    <a class="skip-link" href="#main">Перейти к содержимому</a>
+    <div class="workspace">
+        <aside class="sidebar">
+            <a class="brand" href="{{ workspace_home|default:'/teacher/' }}" aria-label="GO — главная кабинета">
+                <span class="brand-symbol">GO</span>
+                <span class="brand-name">{{ workspace_role|default:"Преподаватель" }}</span>
+            </a>
+
+            <p class="nav-caption">Навигация</p>
+            {% block navigation %}{% endblock %}
+
+            <div class="sidebar-bottom">
+                <div class="profile">
+                    <span class="avatar" aria-hidden="true">{{ profile.initials }}</span>
+                    <div class="profile-info"><p class="profile-name">{{ profile.name }}</p><p class="profile-subject">{{ profile.subject }}</p></div>
+                </div>
+            </div>
+        </aside>
+
+        <div class="page">
+            <header class="topbar">
+                <span>{{ workspace_label|default:"Кабинет преподавателя" }} <span class="breadcrumb-separator" aria-hidden="true">/</span> <span class="topbar-current">{{ page_title }}</span></span>
+                <span class="demo-label">Демонстрационные данные</span>
+            </header>
+
+            <main id="main" class="main" tabindex="-1">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -19,10 +19,11 @@ bin/
 *.test
 coverage.out
 
-# Python experiments, if adopted
+# Django frontend and Python experiments
 __pycache__/
 *.pyc
 .venv/
+frontend/staticfiles/
 
 # Local data and model artifacts (small reviewed fixtures may live elsewhere)
 data/raw/

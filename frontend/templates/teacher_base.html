@@ -1,0 +1,29 @@
+{% extends "workspace_base.html" %}
+{% block navigation %}
+            <nav class="navigation" aria-label="Кабинет преподавателя">
+                <a class="nav-link{% if active_page == 'overview' %} active{% endif %}" href="/teacher/"{% if active_page == 'overview' %} aria-current="page"{% endif %}>
+                    <svg class="nav-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M2 6h12M6 6v8"/></svg>
+                    Обзор
+                </a>
+                <a class="nav-link{% if active_page == 'students' %} active{% endif %}" href="/teacher/students/"{% if active_page == 'students' %} aria-current="page"{% endif %}>
+                    <svg class="nav-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5" r="2.5"/><path d="M3 14v-1a5 5 0 0 1 10 0v1"/></svg>
+                    Студенты
+                </a>
+                <a class="nav-link{% if active_page == 'groups' %} active{% endif %}" href="/teacher/groups/"{% if active_page == 'groups' %} aria-current="page"{% endif %}>
+                    <svg class="nav-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5" r="2"/><path d="M1.5 14v-1a4.5 4.5 0 0 1 9 0v1M11 3.5a2 2 0 0 1 0 4M12 9a4 4 0 0 1 2.5 4v1"/></svg>
+                    Группы
+                </a>
+                <a class="nav-link{% if active_page == 'reviews' %} active{% endif %}" href="/teacher/reviews/"{% if active_page == 'reviews' %} aria-current="page"{% endif %}>
+                    <svg class="nav-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="2" width="10" height="12" rx="2"/><path d="m5.5 8 1.5 1.5 3.5-3.5"/></svg>
+                    Проверка работ
+                </a>
+                <a class="nav-link{% if active_page == 'builder' %} active{% endif %}" href="/teacher/builder/"{% if active_page == 'builder' %} aria-current="page"{% endif %}>
+                    <svg class="nav-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5" cy="4" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="6" cy="12" r="1.5"/></svg>
+                    Конструктор
+                </a>
+                <a class="nav-link{% if active_page == 'calendar' %} active{% endif %}" href="/teacher/calendar/"{% if active_page == 'calendar' %} aria-current="page"{% endif %}>
+                    <svg class="nav-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="2"/><path d="M5 1.5v3M11 1.5v3M2 7h12M5 10h2M9 10h2"/></svg>
+                    Календарь + CRM
+                </a>
+            </nav>
+{% endblock %}
