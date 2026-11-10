@@ -1,0 +1,10 @@
+{% extends "workspace_base.html" %}
+{% block navigation %}
+<nav class="navigation" aria-label="Кабинет студента">
+    <a class="nav-link{% if active_page == 'overview' %} active{% endif %}" href="/student/"{% if active_page == 'overview' %} aria-current="page"{% endif %}>Обзор</a>
+    <a class="nav-link{% if active_page == 'calendar' %} active{% endif %}" href="/student/calendar/"{% if active_page == 'calendar' %} aria-current="page"{% endif %}>Календарь</a>
+    <a class="nav-link{% if active_page == 'assignments' %} active{% endif %}" href="/student/assignments/"{% if active_page == 'assignments' %} aria-current="page"{% endif %}>Задания и варианты</a>
+    <a class="nav-link{% if active_page == 'comments' %} active{% endif %}" href="/student/comments/"{% if active_page == 'comments' %} aria-current="page"{% endif %}>Комментарии</a>
+    <a class="nav-link{% if active_page == 'statistics' %} active{% endif %}" href="/student/statistics/"{% if active_page == 'statistics' %} aria-current="page"{% endif %}>Статистика</a>
+</nav>
+{% endblock %}
