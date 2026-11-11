@@ -1,5 +1,8 @@
 # Контракты
 
+- [Хранение вариантов](worksheets-storage.md).
+- [Назначения, попытки и ответы](learning-storage.md).
+
 Перед параллельной реализацией frontend/backend согласовать OpenAPI-контракт и тестовые ответы. Сейчас конкретных endpoints Go нет. Django маршруты и граница интеграции описаны в [django-frontend.md](django-frontend.md); они не являются API Go.
 
 Для каждой операции описать:
