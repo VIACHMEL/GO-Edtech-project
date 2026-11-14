@@ -142,7 +142,7 @@ func main() {
 			fmt.Println("Ошибка сохранения:", err)
 			continue
 		}
-		fmt.Printf("Сохранено: КЕГЭ %d -> БД %d, №%d, ответ %q\n", id, savedID, dbTask.TaskNumber, dbTask.Answer)
+		fmt.Printf("Сохранено: КЕГЭ %d -> БД %d, №%d, ответ %q\n", id, savedID.TaskID, dbTask.TaskNumber, dbTask.Answer)
 		fmt.Printf("HTML: %d байт, изображений: %d, таблиц: %d, файлов: %d\n",
 			len(dbTask.Metadata["content_html"].(string)),
 			metadataLength(dbTask.Metadata["images"]),
