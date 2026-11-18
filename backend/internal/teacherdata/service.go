@@ -3,6 +3,7 @@ package teacherdata
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/VIACHMEL/GO-Edtech-project/backend/internal/db"
@@ -21,6 +22,7 @@ func (s *Service) GetProfile(
 	userID int64,
 ) (ProfileDTO, error) {
 	user, err := s.Store.GetUser(ctx, userID)
+
 	if err != nil {
 		return ProfileDTO{}, err
 	}
@@ -111,7 +113,7 @@ func makeInitials(name string) string {
 
 	for i, word := range words {
 		if i >= 2 {
-			break
+			log.Printf("WARNING: У профиля нестандартные инициалы: %v", name)
 		}
 
 		letters := []rune(word)
