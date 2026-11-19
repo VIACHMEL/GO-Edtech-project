@@ -42,4 +42,4 @@ checkpoints/
 capture/
 pipelines/shkolkovo/batch_local.py
 *.txt
-*test.go
+
