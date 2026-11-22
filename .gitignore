@@ -43,3 +43,6 @@ capture/
 pipelines/shkolkovo/batch_local.py
 *.txt
 *test.go
+
+# Private photos uploaded through Go API
+data/uploads/

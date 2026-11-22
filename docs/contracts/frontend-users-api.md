@@ -1,6 +1,6 @@
 # Блок пользователей → Go API/Django: JSON DTO, v0.1
 
-**Статус:** слой чтения данных готов к локальной проверке; HTTP-маршруты и авторизация остаются задачей Go-сервера. При изменениях согласовать контракт с разработчиком frontend. Источник — действующие таблицы `users`, `teacher_students`, `groups`, `group_members` (миграции 000004–000006). **Миграций для этого слоя нет.**
+**Статус:** слой чтения подключён к HTTP-серверу `cmd/server`; вход и cookie описаны в [django-frontend.md](django-frontend.md). При изменениях согласовать контракт с разработчиком frontend. Источник — действующие таблицы `users`, `teacher_students`, `groups`, `group_members` (миграции 000004–000006). **Миграций для этого слоя нет.**
 
 ## Код
 
@@ -8,7 +8,7 @@
 - `backend/internal/teacherdata/dto.go`: DTO с `json`-тегами, не содержащие пароль или хеш токена.
 - `backend/internal/teacherdata/service.go`: `NewService(store *db.DB)`, `GetProfile(ctx, userID)`, `GetTeacherStudents(ctx, teacherID, query, status)`, `GetTeacherGroups(ctx, teacherID, query, status)`.
 
-## Предлагаемые маршруты (создаёт сервер)
+## HTTP-маршруты
 
 | HTTP | Сервис | Входы | Роли/доступ |
 | --- | --- | --- | --- |
@@ -52,19 +52,15 @@
 
 ## Что НЕ реализовано здесь
 
-HTTP handlers, вход/сессии, передача токенов, POST/PUT, редактор групп, приглашения через HTTP, пагинация, `attention`, оценки, прогресс, занятия, заметки, расписание, домашние работы. Старые Django mock-поля `progress`, `last_lesson`, `schedule`, `description`, `notes` и др. нельзя подменять фиктивными значениями: Django должен поддержать отсутствие этих полей до подключения остальных модулей. Взаимодействие Django с Go и формат ошибок согласуются с backend-разработчиком.
+Расширенная пагинация списков учеников/групп, `attention`, оценки, прогресс, занятия, заметки, расписание, домашние работы. Старые Django mock-поля `progress`, `last_lesson`, `schedule`, `description`, `notes` и др. нельзя подменять фиктивными значениями: Django должен поддержать отсутствие этих полей до подключения остальных модулей. Взаимодействие Django с Go и формат ошибок согласуются с backend-разработчиком.
 
 ## Проверка
 
-Из `backend/`:
+Вход, чтение и сохранение групп проверены HTTP-сценариями на временной PostgreSQL.
+Созданные при подключении тестовые файлы удалены после выполнения по решению владельца.
+Существующие тесты `internal/db` сохранены; их интеграционные проверки требуют
+отдельной тестовой БД и `EDTECH_TEST_DSN`.
 
-```bash
-# Сначала убедиться, что отдельная edtech_test_db уже содержит миграции 000004–000006.
-export EDTECH_TEST_DSN='postgres://edtech_user:YOUR_LOCAL_PASSWORD@127.0.0.1:15432/edtech_test_db?sslmode=disable'
-gofmt -w internal/db/teacher_views.go internal/teacherdata/*.go
-go test ./internal/teacherdata -v -count=1
-go test ./internal/db ./internal/teacherdata -count=1
-go vet ./internal/db ./internal/teacherdata
-```
+Фактические HTTP-маршруты и формы: [django-frontend.md](django-frontend.md).
 
-`TestTeacherDataIntegration` **пропускается** без `EDTECH_TEST_DSN`. Требуется именно `PASS`, не `SKIP`. Интеграционный тест создаёт только временные записи в выделенной тестовой БД и удаляет их после проверки.
+Регистрация, профиль и приглашения через HTTP теперь реализованы: [объяснение API](../backend-explained.md).

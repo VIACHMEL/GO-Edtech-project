@@ -6,8 +6,31 @@
 <div class="builder-layout">
     <aside class="task-bank" aria-labelledby="bank-title">
         <h2 class="section-title" id="bank-title">Банк заданий</h2>
-        <label class="search-field bank-search"><span class="visually-hidden">Найти задание</span><input type="search" id="bank-search" placeholder="Тема или название"></label>
-        <ul>{% for task in builder.tasks %}<li class="bank-item" data-search="{{ task.title }} {{ task.topic }}"><div><h3>{{ task.title }}</h3><p>{{ task.topic }} · {{ task.kind }}</p><span>Баллы: {{ task.max_score }}</span></div><button class="secondary-button" type="button" data-add-task="{{ task.id }}" disabled>Добавить</button></li>{% endfor %}</ul>
+        <form method="get" action="/teacher/builder/">
+            <label class="field-label">Предмет <input class="text-input" name="subject" value="{{ filters.subject }}"></label>
+            <label class="field-label">Год <input class="text-input" type="number" min="0" name="year" value="{{ filters.year }}"></label>
+            <label class="field-label">Номер <input class="text-input" type="number" min="0" name="task_number" value="{{ filters.task_number }}"></label>
+            <label class="field-label">Тип <input class="text-input" name="task_type" value="{{ filters.task_type }}"></label>
+            <label class="field-label">Лимит <input class="text-input" type="number" min="1" max="100" name="limit" value="{{ filters.limit|default:'20' }}"></label>
+            <button class="secondary-button">Показать</button>
+        </form>
+        <label class="search-field bank-search"><span class="visually-hidden">Поиск в загруженных заданиях</span><input type="search" id="bank-search" placeholder="Поиск в загруженных заданиях"></label>
+        <ul>
+            {% for task in builder.tasks %}
+            <li class="bank-item" data-search="{{ task.subject }} {{ task.task_number }} {{ task.task_type }} {{ task.content_text }}">
+                <div>
+                    <h3>{{ task.subject }} · № {{ task.task_number }}</h3>
+                    <p>{{ task.year }} · {{ task.task_type }}</p>
+                    <details>
+                        <summary>Условие и источник</summary>
+                        <p>{{ task.content_text|linebreaksbr }}</p>
+                        <p>{{ task.source_site }} · {{ task.source_url }}</p>
+                    </details>
+                </div>
+                <button class="secondary-button" type="button" data-add-task="{{ task.id }}" disabled>Добавить</button>
+            </li>
+            {% empty %}<li class="empty-state">Задания не найдены.</li>{% endfor %}
+        </ul>
         <p class="empty-state" id="bank-empty" hidden>Задания не найдены.</p>
     </aside>
     <section class="variant-editor" aria-labelledby="editor-title">

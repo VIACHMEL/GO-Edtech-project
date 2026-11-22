@@ -2,9 +2,11 @@
 
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.http import Http404
-from django.shortcuts import render
-from django.views.decorators.http import require_GET
+from django.middleware.csrf import rotate_token
+from django.shortcuts import redirect, render
+from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
 import backend_client as backend
 
@@ -57,9 +59,19 @@ def teacher_reviews(request):
 
 @require_GET
 def teacher_builder(request):
-    context = teacher_context("Конструктор", "builder")
-    context["builder"] = backend.get_teacher_builder()
-    return render(request, "teacher_builder.html", context)
+    token = request.COOKIES.get("go_session", "")
+    filters = {name: request.GET.get(name, "").strip()
+               for name in ("subject", "year", "task_number", "task_type", "limit")}
+    try:
+        profile = backend.get_json("/api/v1/me", token)
+        builder = backend.get_teacher_builder(filters, token)
+    except backend.BackendError as error:
+        return backend_error(request, error)
+    builder["user_id"] = profile["id"]
+    return render(request, "teacher_builder.html", {
+        "profile": profile, "live": True, "page_title": "Конструктор", "active_page": "builder",
+        "builder": builder, "filters": filters,
+    })
 
 
 def calendar_context(request, audience):
@@ -166,3 +178,57 @@ def solve(request):
     if variant is None:
         raise Http404("Вариант не найден")
     return render(request, "solve.html", {"variant": variant})
+
+
+def backend_error(request, error):
+    if error.status == 401:
+        response = redirect("/login/")
+        response.delete_cookie("go_session")
+        return response
+    return render(request, "login.html", {"error": error.message}, status=error.status)
+
+
+@require_http_methods(["GET", "POST"])
+def login(request):
+    error, status = "", 200
+    if request.method == "POST":
+        try:
+            data = backend.get_json("/api/v1/login", method="POST", data={
+                "email": request.POST.get("email", ""),
+                "password": request.POST.get("password", ""),
+            })
+            profile = backend.get_json("/api/v1/me", data["token"])
+            rotate_token(request)
+            response = redirect("/teacher/" if profile["role"] == "teacher" else "/student/")
+            response.set_cookie("go_session", data["token"], max_age=86400,
+                                httponly=True, secure=settings.SESSION_COOKIE_SECURE,
+                                samesite="Lax", path="/")
+            return response
+        except backend.BackendError as exc:
+            error, status = exc.message, exc.status
+    return render(request, "login.html", {"error": error}, status=status)
+
+
+@require_POST
+def logout(request):
+    try:
+        backend.get_json("/api/v1/logout", request.COOKIES.get("go_session", ""), "POST")
+    except backend.BackendError as error:
+        return backend_error(request, error)
+    response = redirect("/login/")
+    response.delete_cookie("go_session")
+    return response
+
+
+@require_GET
+def account(request):
+    try:
+        profile = backend.get_json("/api/v1/me", request.COOKIES.get("go_session", ""))
+    except backend.BackendError as error:
+        return backend_error(request, error)
+    teacher = profile["role"] == "teacher"
+    return render(request, "teacher.html" if teacher else "student.html", {
+        "profile": profile, "live": True, "page_title": "Профиль",
+        "workspace_role": "Преподаватель" if teacher else "Ученик",
+        "workspace_label": "Кабинет", "workspace_home": "/teacher/" if teacher else "/student/",
+    })
