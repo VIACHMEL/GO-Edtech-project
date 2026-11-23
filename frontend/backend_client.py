@@ -1,7 +1,7 @@
 """Обращения к Go и демонстрационные ответы для оформления страниц."""
 
 import json
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener, urlopen
 
 from django.conf import settings
 
@@ -23,6 +23,19 @@ def get_json(path):
     text = body.decode("utf-8")
     data = json.loads(text)
     return data
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def get_solve_attempt(attempt_id, cookie_header):
+    url = f"{settings.BACKEND_BASE_URL.rstrip('/')}/api/attempts/{attempt_id}/solve"
+    request = Request(url, headers={"Accept": "application/json", "Cookie": cookie_header})
+    opener = build_opener(ProxyHandler({}), NoRedirect())
+    with opener.open(request, timeout=settings.BACKEND_TIMEOUT) as response:
+        return json.load(response)
 
 
 def get_teacher_overview():

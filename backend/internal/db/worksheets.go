@@ -189,7 +189,12 @@ func (db *DB) PublishWorksheet(ctx context.Context, teacherID, id int64) error {
 		if count == 0 {
 			return fmt.Errorf("%w: cannot publish an empty worksheet", ErrValidation)
 		}
-		if _, err := tx.Exec(ctx, "UPDATE worksheet_items i SET content_snapshot=v.content_text,answer_snapshot=v.answer,solution_snapshot=v.solution,task_type_snapshot=t.task_type FROM task_versions v JOIN tasks t ON t.id=v.task_id WHERE i.worksheet_id=$1 AND i.task_version_id=v.id", id); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE worksheet_items i
+SET content_snapshot=v.content_text, answer_snapshot=v.answer, solution_snapshot=v.solution,
+    task_type_snapshot=t.task_type,
+    exam_part_snapshot=task_exam_part(t.exam_type,t.subject,t.task_number,t.metadata)
+FROM task_versions v JOIN tasks t ON t.id=v.task_id
+WHERE i.worksheet_id=$1 AND i.task_version_id=v.id`, id); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, "UPDATE worksheets SET status='published',published_at=now(),updated_at=now() WHERE id=$1", id)

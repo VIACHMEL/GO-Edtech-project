@@ -1,5 +1,6 @@
 """Минимальные настройки только для локального запуска."""
 
+import os
 from pathlib import Path
 
 from django.core.management.utils import get_random_secret_key
@@ -30,5 +31,5 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Адрес будущего Go-сервера и время ожидания сетевой операции в секундах.
-BACKEND_BASE_URL = "http://127.0.0.1:8080"
+BACKEND_BASE_URL = os.environ.get("BACKEND_BASE_URL", "http://127.0.0.1:8080")
 BACKEND_TIMEOUT = 3

@@ -1,9 +1,10 @@
 """Страницы прототипа: выбор демонстрационных данных и передача в шаблоны."""
 
 from urllib.parse import urlencode
+from urllib.error import HTTPError, URLError
 
 from django.contrib.staticfiles import finders
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_GET
 
@@ -163,11 +164,29 @@ def student_statistics(request):
 
 @require_GET
 def solve(request):
-    variant = backend.get_demo_variant(request.GET.get("variant", "w1"))
+    attempt = request.GET.get("attempt")
+    if attempt is None:
+        variant = backend.get_demo_variant(request.GET.get("variant", "w1"))
+    else:
+        if not attempt.isascii() or not attempt.isdecimal() or len(attempt) > 19:
+            raise Http404("Попытка не найдена")
+        try:
+            variant = backend.get_solve_attempt(int(attempt), request.headers.get("Cookie", ""))
+        except HTTPError as error:
+            if error.code == 404:
+                raise Http404("Попытка не найдена") from error
+            if error.code == 401:
+                return HttpResponse("Для просмотра попытки нужен вход.", status=401)
+            return HttpResponse("Попытка временно недоступна.", status=503)
+        except (URLError, TimeoutError, ValueError):
+            return HttpResponse("Попытка временно недоступна.", status=503)
     if variant is None:
         raise Http404("Вариант не найден")
     board_assets_ready = bool(finders.find("solve-board/dist/solve-board.js"))
-    return render(request, "solve.html", {
+    response = render(request, "solve.html", {
         "variant": variant,
         "board_assets_ready": board_assets_ready,
     })
+    if attempt is not None:
+        response["Cache-Control"] = "no-store"
+    return response

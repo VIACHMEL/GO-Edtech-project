@@ -1,4 +1,6 @@
 const variant = JSON.parse(document.getElementById("variant-data").textContent);
+const live = typeof variant.status === "string";
+let canAnswer = live ? variant.can_answer : true;
 const answersKey = "go-edtech:answers:" + variant.id + ":v1";
 const answerInput = document.getElementById("solve-answer");
 const solveStatus = document.getElementById("solve-status");
@@ -10,11 +12,15 @@ const finishDialog = document.getElementById("finish-dialog");
 const boardContainer = document.getElementById("solve-board");
 const boardNavigationStatus = document.getElementById("solve-board-navigation-status");
 let currentIndex = 0;
-let answers = {};
+let busy = false;
+const answers = {};
+const savedAnswers = new Map();
+const revisions = new Map();
 
-try {
-    const savedText = localStorage.getItem(answersKey);
-    if (savedText) {
+function restorePreviewDraft() {
+    try {
+        const savedText = localStorage.getItem(answersKey);
+        if (!savedText) return;
         const saved = JSON.parse(savedText);
         if (!saved.answers || typeof saved.answers !== "object" || Array.isArray(saved.answers)) {
             throw new Error("Invalid answers");
@@ -28,9 +34,21 @@ try {
             currentIndex = saved.current_index;
         }
         solveStatus.textContent = "Загружен черновик из этого браузера";
+    } catch {
+        solveStatus.textContent = "Локальный черновик недоступен. Можно решать без сохранения.";
     }
-} catch (error) {
-    solveStatus.textContent = "Локальный черновик недоступен. Можно решать без сохранения.";
+}
+
+if (live) {
+    for (const task of variant.tasks) {
+        answers[task.id] = task.answer_text;
+        savedAnswers.set(task.id, task.answer_text);
+        revisions.set(task.id, task.answer_revision);
+    }
+    solveStatus.textContent = canAnswer ? "Ответы загружены с сервера" : "Ответы доступны для просмотра";
+} else {
+    solveStatus.textContent = "Ответы находятся только в открытой странице";
+    restorePreviewDraft();
 }
 
 function updateNavigator() {
@@ -58,11 +76,11 @@ function showTask(index) {
     boardNavigationStatus.hidden = true;
     currentIndex = index;
     const task = variant.tasks[currentIndex];
-    document.getElementById("solve-task-kind").textContent = task.topic + " · " + task.kind;
+    document.getElementById("solve-task-kind").textContent = [task.topic, task.kind].filter(Boolean).join(" · ");
     document.getElementById("solve-task-title").textContent = "Задание " + (index + 1) + ". " + task.title;
     document.getElementById("solve-task-prompt").textContent = task.prompt;
     answerInput.value = answers[task.id] || "";
-    answerInput.disabled = false;
+    answerInput.disabled = !canAnswer || busy;
     previousButton.disabled = index === 0;
     nextButton.disabled = index === variant.tasks.length - 1;
     updateNavigator();
@@ -86,13 +104,66 @@ previousButton.addEventListener("click", function () {
 nextButton.addEventListener("click", function () {
     if (currentIndex < variant.tasks.length - 1) showTask(currentIndex + 1);
 });
-saveAnswersButton.disabled = false;
-saveAnswersButton.addEventListener("click", function () {
+function savePreviewDraft() {
     try {
         localStorage.setItem(answersKey, JSON.stringify({answers: answers, current_index: currentIndex}));
         solveStatus.textContent = "Черновик сохранён только в этом браузере";
     } catch (error) {
         solveStatus.textContent = "Не удалось сохранить черновик. Ответы пока остаются в открытой странице.";
+    }
+}
+
+async function attemptRequest(path, method, body) {
+    const options = { method };
+    if (body !== undefined) {
+        options.headers = { "Content-Type": "application/json" };
+        options.body = JSON.stringify(body);
+    }
+    const response = await fetch("/api/attempts/" + variant.id + path, options);
+    if (!response.ok) {
+        const message = response.status === 409
+            ? "Попытка или ответ изменились. Обновите страницу перед сохранением."
+            : "Не удалось сохранить данные. Попробуйте ещё раз.";
+        throw new Error(message);
+    }
+    return response.json();
+}
+
+async function saveAttemptAnswers() {
+    for (const task of variant.tasks) {
+        const text = answers[task.id];
+        if (text === savedAnswers.get(task.id)) continue;
+        const saved = await attemptRequest("/answers/" + task.id, "PUT", {
+            text, expected_revision: revisions.get(task.id),
+        });
+        revisions.set(task.id, saved.answer_revision);
+        savedAnswers.set(task.id, text);
+    }
+}
+
+function updateControls() {
+    answerInput.disabled = !canAnswer || busy;
+    saveAnswersButton.disabled = !canAnswer || busy;
+    finishButton.disabled = !canAnswer || busy;
+    document.getElementById("solve-confirm").disabled = busy;
+    document.getElementById("solve-continue").disabled = busy;
+}
+
+saveAnswersButton.addEventListener("click", async function () {
+    if (!live) {
+        savePreviewDraft();
+        return;
+    }
+    busy = true;
+    updateControls();
+    try {
+        await saveAttemptAnswers();
+        solveStatus.textContent = "Ответы сохранены";
+    } catch (error) {
+        solveStatus.textContent = error.message;
+    } finally {
+        busy = false;
+        updateControls();
     }
 });
 
@@ -103,7 +174,6 @@ function answeredCount() {
     }
     return count;
 }
-finishButton.disabled = false;
 finishButton.addEventListener("click", function () {
     document.getElementById("finish-summary").textContent = "Заполнено ответов: " + answeredCount() + " из " + variant.tasks.length + ".";
     finishDialog.showModal();
@@ -111,8 +181,35 @@ finishButton.addEventListener("click", function () {
 document.getElementById("solve-continue").addEventListener("click", function () {
     finishDialog.close();
 });
-document.getElementById("solve-confirm").addEventListener("click", function () {
-    finishDialog.close();
-    solveStatus.textContent = "Предпросмотр завершения: ответов " + answeredCount() + " из " + variant.tasks.length + ". На сервер ничего не отправлено. Черновик можно сохранить отдельно.";
+finishDialog.addEventListener("cancel", function (event) {
+    if (busy) event.preventDefault();
 });
-showTask(currentIndex);
+document.getElementById("solve-confirm").addEventListener("click", async function () {
+    if (!live) {
+        finishDialog.close();
+        solveStatus.textContent = "Предпросмотр завершения: ответов " + answeredCount() + " из " + variant.tasks.length + ". На сервер ничего не отправлено. Черновик можно сохранить отдельно.";
+        return;
+    }
+    if (boardContainer.dataset.pending === "true") {
+        document.getElementById("finish-summary").textContent = "Дождитесь подтверждения сохранения рисунка перед сдачей.";
+        return;
+    }
+    busy = true;
+    updateControls();
+    try {
+        await saveAttemptAnswers();
+        await attemptRequest("/submit", "POST");
+        canAnswer = false;
+        finishDialog.close();
+        solveStatus.textContent = "Работа сдана";
+    } catch (error) {
+        document.getElementById("finish-summary").textContent = error.message;
+    } finally {
+        busy = false;
+        updateControls();
+    }
+});
+if (variant.tasks.length) {
+    showTask(currentIndex);
+    updateControls();
+}
