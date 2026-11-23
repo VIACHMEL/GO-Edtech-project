@@ -389,8 +389,16 @@ textarea.text-input { resize: vertical; }
 .task-nav-button.current { background: var(--bg-active); color: var(--text-primary); }
 .task-nav-button.answered > span:first-child { color: var(--accent); }
 .task-nav-state { font-size: 10px; }
-.solve-content { width: min(100%, 1050px); padding: 42px 42px 60px; }
-.solve-content > h2 { font-size: 23px; letter-spacing: -.025em; }
+.solve-content { min-width: 0; width: min(100%, 1500px); padding: 36px 32px 56px; }
+.solve-workspace { display: grid; gap: 26px; }
+.solve-task-details { min-width: 0; }
+.solve-task-details > h2 { font-size: 23px; letter-spacing: -.025em; }
+.solve-board { min-width: 0; border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.solve-board > h2 { font-size: 16px; margin-bottom: 10px; }
+.solve-board-canvas { height: clamp(360px, 64vh, 760px); position: relative; margin-top: 12px; border-radius: 8px; overflow: hidden; }
+@media (min-width: 1200px) {
+    .solve-workspace { grid-template-columns: minmax(285px, 0.85fr) minmax(480px, 1.4fr); align-items: start; }
+}
 .solve-answer { min-height: 170px; }
 .solve-controls { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; margin: 20px 0 15px; }
 .confirm-dialog { width: min(480px, calc(100% - 32px)); padding: 25px; background: #151516; border: 1px solid #36363a; border-radius: 10px; color: var(--text-primary); }
@@ -429,5 +437,5 @@ textarea.text-input { resize: vertical; }
     .task-nav-button { width: auto; min-width: 38px; margin: 0; padding: 8px 10px; }
     .task-nav-state { display: none; }
     .solve-content { padding: 28px 20px 40px; }
-    .solve-content > h2 { font-size: 20px; }
+    .solve-task-details > h2 { font-size: 20px; }
 }

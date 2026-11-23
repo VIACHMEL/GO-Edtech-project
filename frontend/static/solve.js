@@ -7,6 +7,8 @@ const nextButton = document.getElementById("solve-next");
 const saveAnswersButton = document.getElementById("solve-save");
 const finishButton = document.getElementById("solve-finish");
 const finishDialog = document.getElementById("finish-dialog");
+const boardContainer = document.getElementById("solve-board");
+const boardNavigationStatus = document.getElementById("solve-board-navigation-status");
 let currentIndex = 0;
 let answers = {};
 
@@ -46,6 +48,14 @@ function updateNavigator() {
 }
 
 function showTask(index) {
+    const previousBoard = variant.tasks[currentIndex].board;
+    const nextBoard = variant.tasks[index].board;
+    if (previousBoard?.id !== nextBoard?.id && boardContainer.dataset.pending === "true") {
+        boardNavigationStatus.textContent = "Перед сменой доски дождитесь сохранения рисунка.";
+        boardNavigationStatus.hidden = false;
+        return;
+    }
+    boardNavigationStatus.hidden = true;
     currentIndex = index;
     const task = variant.tasks[currentIndex];
     document.getElementById("solve-task-kind").textContent = task.topic + " · " + task.kind;
@@ -56,6 +66,8 @@ function showTask(index) {
     previousButton.disabled = index === 0;
     nextButton.disabled = index === variant.tasks.length - 1;
     updateNavigator();
+    boardContainer.dataset.currentIndex = index;
+    boardContainer.dispatchEvent(new Event("solve:task-changed"));
 }
 
 answerInput.addEventListener("input", function () {

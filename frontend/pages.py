@@ -2,6 +2,7 @@
 
 from urllib.parse import urlencode
 
+from django.contrib.staticfiles import finders
 from django.http import Http404
 from django.shortcuts import render
 from django.views.decorators.http import require_GET
@@ -165,4 +166,8 @@ def solve(request):
     variant = backend.get_demo_variant(request.GET.get("variant", "w1"))
     if variant is None:
         raise Http404("Вариант не найден")
-    return render(request, "solve.html", {"variant": variant})
+    board_assets_ready = bool(finders.find("solve-board/dist/solve-board.js"))
+    return render(request, "solve.html", {
+        "variant": variant,
+        "board_assets_ready": board_assets_ready,
+    })
