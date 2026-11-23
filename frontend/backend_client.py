@@ -1,28 +1,17 @@
 """Обращения к Go и демонстрационные ответы для оформления страниц."""
 
 import json
-from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener, urlopen
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
 
 from django.conf import settings
 
 
-def get_json(path):
-    if not path.startswith("/") or path.startswith("//"):
-        raise ValueError("Путь должен начинаться с одного /, например /example/")
-
-    url = settings.BACKEND_BASE_URL.rstrip("/") + path
-    request = Request(
-        url,
-        method="GET",
-        headers={"Accept": "application/json"},
-    )
-
-    with urlopen(request, timeout=settings.BACKEND_TIMEOUT) as response:
-        body = response.read()
-
-    text = body.decode("utf-8")
-    data = json.loads(text)
-    return data
+class BackendError(Exception):
+    def __init__(self, status, message):
+        self.status = status
+        self.message = message
+        super().__init__(message)
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -30,12 +19,33 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def get_solve_attempt(attempt_id, cookie_header):
-    url = f"{settings.BACKEND_BASE_URL.rstrip('/')}/api/attempts/{attempt_id}/solve"
-    request = Request(url, headers={"Accept": "application/json", "Cookie": cookie_header})
-    opener = build_opener(ProxyHandler({}), NoRedirect())
-    with opener.open(request, timeout=settings.BACKEND_TIMEOUT) as response:
-        return json.load(response)
+def get_json(path, token="", method="GET", data=None):
+    if not path.startswith("/") or path.startswith("//"):
+        raise ValueError("Ожидается путь с одним начальным /")
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    body = None
+    if data is not None:
+        body = json.dumps(data).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = Request(settings.BACKEND_BASE_URL.rstrip("/") + path,
+                      data=body, headers=headers, method=method)
+    try:
+        opener = build_opener(ProxyHandler({}), NoRedirect())
+        with opener.open(request, timeout=settings.BACKEND_TIMEOUT) as response:
+            return json.load(response)
+    except HTTPError as error:
+        status = error.code if error.code in (400, 401, 403, 404, 409) else 503
+        message = "Go backend недоступен"
+        if status != 503:
+            try:
+                message = json.load(error)["error"]
+            except (ValueError, UnicodeError, KeyError, TypeError):
+                message = "Ошибка запроса"
+        raise BackendError(status, message) from error
+    except (URLError, OSError, ValueError, UnicodeError) as error:
+        raise BackendError(503, "Go backend недоступен") from error
 
 
 def get_teacher_overview():
@@ -188,33 +198,9 @@ def get_demo_students():
     ]
 
 
-def get_teacher_students(query="", status="all"):
-    """Имитирует ответ Go с поиском и фильтром только по примерам."""
-    students = get_demo_students()
-    result = []
-    active_count = 0
-    attention_count = 0
-    for student in students:
-        if student["state"] == "active":
-            active_count += 1
-        if student["needs_attention"]:
-            attention_count += 1
-
-        text = student["name"] + " " + student["subject"] + " " + student["group"]
-        matches_query = query.casefold() in text.casefold()
-        matches_status = (
-            status == "all"
-            or (status == "active" and student["state"] == "active")
-            or (status == "attention" and student["needs_attention"])
-        )
-        if matches_query and matches_status:
-            result.append(student)
-
-    return {
-        "teacher": get_teacher_profile(), "students": result,
-        "total": len(students), "active_count": active_count,
-        "attention_count": attention_count,
-    }
+def get_teacher_students(query="", status="all", token=""):
+    from urllib.parse import urlencode
+    return get_json("/api/v1/teacher/students?" + urlencode({"q": query, "status": status}), token)
 
 
 def get_demo_groups():
@@ -264,34 +250,9 @@ def get_demo_groups():
     ]
 
 
-def get_teacher_groups(query="", status="all"):
-    groups = get_demo_groups()
-    students = get_demo_students()
-    result = []
-    active_count = 0
-    archived_count = 0
-    for group in groups:
-        group["members"] = []
-        for student in students:
-            if student["id"] in group["member_ids"]:
-                group["members"].append(student)
-        group["member_count"] = len(group["members"])
-        if group["state"] == "active":
-            active_count += 1
-        if group["state"] == "archived":
-            archived_count += 1
-
-        text = group["name"] + " " + group["subject"] + " " + group["description"]
-        matches_query = query.casefold() in text.casefold()
-        matches_status = status == "all" or group["state"] == status
-        if matches_query and matches_status:
-            result.append(group)
-
-    return {
-        "teacher": get_teacher_profile(), "groups": result,
-        "total": len(groups), "active_count": active_count,
-        "archived_count": archived_count,
-    }
+def get_teacher_groups(query="", status="all", token=""):
+    from urllib.parse import urlencode
+    return get_json("/api/v1/teacher/groups?" + urlencode({"q": query, "status": status}), token)
 
 
 def get_demo_tasks():
@@ -308,10 +269,11 @@ def get_demo_tasks():
     ]
 
 
-def get_teacher_builder():
+def get_teacher_builder(filters, token):
+    from urllib.parse import urlencode
     return {
-        "teacher": get_teacher_profile(), "tasks": get_demo_tasks(),
-        "draft_title": "Контрольная №3", "selected_ids": ["t1", "t3"],
+        "tasks": get_json("/api/v1/teacher/tasks?" + urlencode(filters), token),
+        "draft_title": "", "selected_ids": [],
     }
 
 

@@ -1,34 +1,28 @@
 package boardhttp
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 
 	"github.com/VIACHMEL/GO-Edtech-project/backend/internal/db"
-	"github.com/VIACHMEL/GO-Edtech-project/backend/internal/learningdata"
 )
 
 // Actor resolves an existing authenticated session. No role or user ID is read from the URL.
 type Actor func(*http.Request) (int64, bool)
 
 type Handler struct {
-	store    *db.DB
-	learning *learningdata.Service
-	actor    Actor
-	origin   string
-	rooms    rooms
+	store  *db.DB
+	actor  Actor
+	origin string
+	rooms  rooms
 }
 
 func Register(mux *http.ServeMux, store *db.DB, actor Actor, origin string) {
-	h := &Handler{store: store, learning: learningdata.NewService(store), actor: actor, origin: origin}
-	mux.HandleFunc("GET /api/attempts/{id}/solve", h.solve)
-	mux.HandleFunc("PUT /api/attempts/{id}/answers/{item}", h.saveAnswer)
-	mux.HandleFunc("POST /api/attempts/{id}/submit", h.submit)
+	h := &Handler{store: store, actor: actor, origin: origin}
+	mux.HandleFunc("GET /api/v1/attempts/{id}/solve", h.solve)
 	mux.HandleFunc("GET /ws/boards/{id}", h.upgrade)
 }
 
@@ -52,6 +46,7 @@ type solvePage struct {
 	Title     string      `json:"title"`
 	Status    string      `json:"status"`
 	CanAnswer bool        `json:"can_answer"`
+	IsTeacher bool        `json:"is_teacher"`
 	Tasks     []solveTask `json:"tasks"`
 }
 
@@ -108,7 +103,7 @@ func (h *Handler) solve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result := solvePage{ID: attempt.ID, Title: attempt.Title, Status: attempt.Status,
-		CanAnswer: attempt.CanAnswer, Tasks: make([]solveTask, 0, len(attempt.Tasks))}
+		CanAnswer: attempt.CanAnswer, IsTeacher: attempt.IsTeacher, Tasks: make([]solveTask, 0, len(attempt.Tasks))}
 	for _, task := range attempt.Tasks {
 		item := solveTask{ID: task.ItemID, Title: fmt.Sprintf("Позиция %d", task.Position),
 			Prompt: task.Prompt, Answer: task.Answer, Revision: task.Revision}
@@ -121,60 +116,4 @@ func (h *Handler) solve(w http.ResponseWriter, r *http.Request) {
 		result.Tasks = append(result.Tasks, item)
 	}
 	respond(w, result)
-}
-
-func (h *Handler) saveAnswer(w http.ResponseWriter, r *http.Request) {
-	actor, id, ok := h.endpoint(w, r)
-	if !ok || !h.sameOrigin(w, r) {
-		return
-	}
-	item, err := strconv.ParseInt(r.PathValue("item"), 10, 64)
-	if err != nil || item < 1 {
-		http.NotFound(w, r)
-		return
-	}
-	var input struct {
-		Text     string `json:"text"`
-		Revision *int   `json:"expected_revision"`
-	}
-	reader := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
-	if reader.Decode(&input) != nil || input.Revision == nil || reader.Decode(new(any)) != io.EOF {
-		handleError(w, db.ErrValidation)
-		return
-	}
-	// Keep existing Data (e.g. attachments) when changing only the text.
-	saved, err := h.saveAnswerText(r.Context(), actor, id, item, input.Text, *input.Revision)
-	if err != nil {
-		handleError(w, err)
-		return
-	}
-	respond(w, saved)
-}
-
-func (h *Handler) saveAnswerText(ctx context.Context, actor, attempt, item int64, text string, revision int) (*db.SavedAnswer, error) {
-	answers, err := h.learning.GetAttemptAnswers(ctx, actor, attempt)
-	if err != nil {
-		return nil, err
-	}
-	for _, answer := range answers {
-		if answer.WorksheetItemID == item {
-			return h.learning.SaveAnswer(ctx, actor, attempt, item, learningdata.SaveAnswerRequest{
-				Text: text, Data: answer.Data, ExpectedRevision: revision,
-			})
-		}
-	}
-	return nil, db.ErrNotFound
-}
-
-func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
-	actor, id, ok := h.endpoint(w, r)
-	if !ok || !h.sameOrigin(w, r) {
-		return
-	}
-	attempt, err := h.learning.SubmitAttempt(r.Context(), actor, id)
-	if err != nil {
-		handleError(w, err)
-		return
-	}
-	respond(w, attempt)
 }

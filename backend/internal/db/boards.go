@@ -35,6 +35,7 @@ type SolveAttempt struct {
 	Title     string
 	Status    string
 	CanAnswer bool
+	IsTeacher bool
 	Tasks     []SolveTask
 }
 
@@ -78,6 +79,7 @@ func (db *DB) GetSolveAttempt(ctx context.Context, actor, attemptID int64) (Solv
 		}
 		result.ID, result.Status = a.ID, a.Status
 		result.CanAnswer = editable && actor == assignment.StudentID
+		result.IsTeacher = actor == assignment.AssignedBy
 		if err := tx.QueryRow(ctx, "SELECT title FROM worksheets WHERE id=$1", a.WorksheetID).Scan(&result.Title); err != nil {
 			return err
 		}

@@ -1,5 +1,10 @@
 {% extends "teacher_base.html" %}
 {% block content %}
+{% if live %}
+<div class="page-heading"><h1>{{ profile.name }}</h1></div>
+<p>{{ profile.email }}</p>
+<p>Расписание и работы пока не подключены.</p>
+{% else %}
                 <div class="page-heading">
                     <div>
                         <h1>{{ overview.date }}</h1>
@@ -54,4 +59,5 @@
                         {% endfor %}
                     </ul>
                 </section>
+{% endif %}
 {% endblock %}

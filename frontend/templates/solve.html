@@ -10,7 +10,7 @@
 </head>
 <body>
     <header class="solve-header">
-        <a class="text-link" href="/student/assignments/">← К работам</a>
+        <a class="text-link" href="{% if variant.is_teacher %}/teacher/assignments/{% else %}/student/assignments/{% endif %}">← К работам</a>
         <div>
             <h1>{{ variant.title }}</h1>
             {% if variant.duration %}<p>{{ variant.duration }}</p>{% endif %}
@@ -64,6 +64,7 @@
         </div>
     </dialog>
     {{ variant|json_script:"variant-data" }}
+    <div hidden>{% csrf_token %}</div>
     <script src="{% static 'solve.js' %}" defer></script>
     {% if board_assets_ready %}
         <script type="module" src="{% static 'solve-board/dist/solve-board.js' %}"></script>

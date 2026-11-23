@@ -148,9 +148,9 @@ func (s *Service) GetAttemptAnswers(ctx context.Context, studentID, attemptID in
 // сохранение ответа на конкретную задачу
 func (s *Service) SaveAnswer(ctx context.Context, studentID, attemptID, itemID int64, req SaveAnswerRequest) (*db.SavedAnswer, error) {
 	input := db.AnswerInput{
-		WorksheetItemID: itemID,
-		Text: req.Text,
-		Data: req.Data,
+		WorksheetItemID:  itemID,
+		Text:             req.Text,
+		Data:             req.Data,
 		ExpectedRevision: req.ExpectedRevision,
 	}
 	return s.Store.SaveAnswer(ctx, studentID, attemptID, input)
@@ -173,31 +173,32 @@ func (s *Service) SubmitAttempt(ctx context.Context, studentID, attemptID int64)
 // преобразует назначение из БД в DTO
 func ToAssignmentDTO(a *db.Assignment) AssignmentDTO {
 	return AssignmentDTO{
-		ID: a.ID,
-		WorksheetID: a.WorksheetID,
-		StudentID: a.StudentID,
-		AssignedBy: a.AssignedBy,
-		GroupID: a.GroupID,
+		ID:             a.ID,
+		WorksheetID:    a.WorksheetID,
+		WorksheetTitle: a.WorksheetTitle,
+		StudentID:      a.StudentID,
+		AssignedBy:     a.AssignedBy,
+		GroupID:        a.GroupID,
 		DistributionID: a.DistributionID,
-		DueAt: a.DueAt,
-		Status: a.Status,
-		AssignedAt: a.AssignedAt,
-		MaxAttempts: a.MaxAttempts,
+		DueAt:          a.DueAt,
+		Status:         a.Status,
+		AssignedAt:     a.AssignedAt,
+		MaxAttempts:    a.MaxAttempts,
 	}
 }
 
 // преобразует попытку из БД в DTO
 func ToAttemptDTO(a *db.Attempt) AttemptDTO {
 	return AttemptDTO{
-		ID: a.ID,
-		AssignmentID: a.AssignmentID,
-		WorksheetID: a.WorksheetID,
-		AttemptNo: a.AttemptNo,
-		Status: a.Status,
-		StartedAt: a.StartedAt,
-		SubmittedAt: a.SubmittedAt,
+		ID:                a.ID,
+		AssignmentID:      a.AssignmentID,
+		WorksheetID:       a.WorksheetID,
+		AttemptNo:         a.AttemptNo,
+		Status:            a.Status,
+		StartedAt:         a.StartedAt,
+		SubmittedAt:       a.SubmittedAt,
 		ResultPublishedAt: a.ResultPublishedAt,
-		IsLate: a.IsLate,
+		IsLate:            a.IsLate,
 	}
 }
 
@@ -205,15 +206,15 @@ func ToAttemptDTO(a *db.Attempt) AttemptDTO {
 func ToTeacherAnswerDTO(a *db.TeacherAnswer) TeacherAnswerDTO {
 	return TeacherAnswerDTO{
 		WorksheetItemID: a.WorksheetItemID,
-		Position: a.Position,
-		Text: a.Text,
-		Data: a.Data,
-		AnswerRevision: a.AnswerRevision,
-		GradeStatus: a.GradeStatus,
-		GradedRevision: a.GradedRevision,
-		IsCorrect: a.IsCorrect,
-		Score: a.Score,
-		Comment: a.Comment,
-		LiveState: a.LiveState,
+		Position:        a.Position,
+		Text:            a.Text,
+		Data:            a.Data,
+		AnswerRevision:  a.AnswerRevision,
+		GradeStatus:     a.GradeStatus,
+		GradedRevision:  a.GradedRevision,
+		IsCorrect:       a.IsCorrect,
+		Score:           a.Score,
+		Comment:         a.Comment,
+		LiveState:       a.LiveState,
 	}
 }

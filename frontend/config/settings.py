@@ -16,7 +16,7 @@ ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
 
 INSTALLED_APPS = ["django.contrib.staticfiles"]
-MIDDLEWARE = []
+MIDDLEWARE = ["django.middleware.csrf.CsrfViewMiddleware"]
 DATABASES = {}
 
 TEMPLATES = [
@@ -31,5 +31,7 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Адрес будущего Go-сервера и время ожидания сетевой операции в секундах.
-BACKEND_BASE_URL = os.environ.get("BACKEND_BASE_URL", "http://127.0.0.1:8080")
+BACKEND_BASE_URL = os.environ.get("GO_API_BASE_URL", "http://127.0.0.1:8080")
 BACKEND_TIMEOUT = 3
+
+SESSION_COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"

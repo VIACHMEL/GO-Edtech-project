@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const maxConnections = 10;
+const maxConnections = 10
 
 type DB struct {
 	Pool *pgxpool.Pool
@@ -19,7 +19,7 @@ func New(ctx context.Context, dsn string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse dsn: %w", err)
 	}
-	
+
 	cfg.MaxConns = maxConnections
 	cfg.MaxConnLifetime = time.Hour
 
@@ -29,6 +29,7 @@ func New(ctx context.Context, dsn string) (*DB, error) {
 	}
 
 	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
 		return nil, fmt.Errorf("ping db: %w", err)
 	}
 

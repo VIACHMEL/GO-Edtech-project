@@ -1,8 +1,8 @@
 {% extends "teacher_base.html" %}
 {% block content %}
 <div class="page-heading">
-    <div><h1>Группы <span class="heading-count">{{ total }}</span></h1><p class="page-subtitle">Состав групп, расписание и последние задания</p></div>
-    <div class="pending-action"><button class="button" type="button" disabled>+ Создать группу</button><span>Создание подключим позже</span></div>
+    <div><h1>Группы <span class="heading-count">{{ total }}</span></h1><p class="page-subtitle">Состав групп и управление участниками</p></div>
+    <a class="button" href="#create-group">+ Создать группу</a>
 </div>
 
 <form class="search-form" method="get" action="/teacher/groups/" role="search">
@@ -17,19 +17,31 @@
     {% for tab in tabs %}<a href="{{ tab.url }}" class="filter-tab{% if tab.active %} active{% endif %}"{% if tab.active %} aria-current="page"{% endif %}>{{ tab.label }}<span>{{ tab.count }}</span></a>{% endfor %}
 </nav>
 
+{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+<details id="create-group" class="inspector-section"{% if error %} open{% endif %}>
+    <summary>Новая группа</summary>
+    <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="create">
+        <label class="field-label">Название <input class="text-input" name="name" required></label>
+        <label class="field-label">Предмет <input class="text-input" name="subject"></label>
+        <button class="button">Создать</button>
+    </form>
+</details>
+
 <div class="collection-layout{% if selected_group %} with-inspector{% endif %}">
     <section class="collection-main" aria-label="Список групп">
         <div class="table-scroll">
             <table class="data-table group-table">
                 <caption class="visually-hidden">Группы преподавателя</caption>
-                <thead><tr><th scope="col">Группа</th><th scope="col">Ученики</th><th scope="col">Следующее занятие</th><th scope="col">Статус</th><th scope="col"><span class="visually-hidden">Подробности</span></th></tr></thead>
+                <thead><tr><th scope="col">Группа</th><th scope="col">Ученики</th><th scope="col">Предмет</th><th scope="col">Статус</th><th scope="col"><span class="visually-hidden">Подробности</span></th></tr></thead>
                 <tbody>
                     {% for group in groups %}
                     <tr{% if selected_group.id == group.id %} class="selected-row"{% endif %}>
-                        <td><a class="group-link" href="{{ group.url }}"{% if selected_group.id == group.id %} aria-current="true"{% endif %}><span class="cell-title">{{ group.name }}</span><span class="cell-secondary">{{ group.subject }} · {{ group.schedule }}</span></a></td>
+                        <td><a class="group-link" href="{{ group.url }}"{% if selected_group.id == group.id %} aria-current="true"{% endif %}><span class="cell-title">{{ group.name }}</span><span class="cell-secondary">{{ group.subject|default_if_none:"—" }}</span></a></td>
                         <td><span class="member-count">{{ group.member_count }}</span></td>
-                        <td class="secondary-cell">{{ group.next_lesson }}</td>
-                        <td><span class="entity-status"><span aria-hidden="true"></span>{{ group.status_label }}</span></td>
+                        <td class="secondary-cell">{{ group.subject|default_if_none:"—" }}</td>
+                        <td><span class="entity-status"><span aria-hidden="true"></span>{% if group.state == 'archived' %}Архив{% else %}Активна{% endif %}</span></td>
                         <td class="table-action"><a href="{{ group.url }}" aria-label="Открыть группу: {{ group.name }}">→</a></td>
                     </tr>
                     {% empty %}
@@ -38,17 +50,60 @@
                 </tbody>
             </table>
         </div>
-        <p class="list-caption" role="status">Показано {{ groups|length }} из {{ total }} · Демонстрационный список</p>
+        <p class="list-caption" role="status">Показано {{ groups|length }} из {{ total }}</p>
     </section>
 
     {% if selected_group %}
     <aside class="inspector" aria-labelledby="group-detail-title">
         <div class="inspector-heading"><span>О группе</span><a href="{{ close_url }}" class="close-link" aria-label="Закрыть сведения о группе">×</a></div>
         <div class="group-identity"><h2 id="group-detail-title">{{ selected_group.name }}</h2><p>{{ selected_group.description }}</p></div>
-        <dl class="detail-list"><div><dt>Расписание</dt><dd>{{ selected_group.schedule }}</dd></div><div><dt>Следующее занятие</dt><dd>{{ selected_group.next_lesson }}</dd></div><div><dt>Участники</dt><dd>{{ selected_group.member_count }}</dd></div><div><dt>Проведено занятий</dt><dd>{{ selected_group.lesson_count }}</dd></div></dl>
-        <section class="inspector-section"><h3>Ученики</h3>{% for member in selected_group.members %}<a class="member-row" href="/teacher/students/?student={{ member.id }}"><span class="small-avatar" aria-hidden="true">{{ member.initials }}</span><span>{{ member.name }}</span><span class="row-arrow" aria-hidden="true">→</span></a>{% empty %}<p class="detail-note">В группе пока нет учеников.</p>{% endfor %}</section>
-        <section class="inspector-section"><h3>Последние задания</h3>{% for assignment in selected_group.assignments %}<div class="detail-assignment"><p>{{ assignment.title }}</p><span>{{ assignment.deadline }} · {{ assignment.status }}</span></div>{% empty %}<p class="detail-note">Назначенных заданий нет.</p>{% endfor %}</section>
-        <section class="inspector-section"><h3>Заметка</h3><p class="detail-note">{{ selected_group.notes }}</p></section>
+        <dl class="detail-list"><div><dt>Предмет</dt><dd>{{ selected_group.subject|default_if_none:"—" }}</dd></div><div><dt>Участники</dt><dd>{{ selected_group.member_count }}</dd></div></dl>
+        {% if selected_group.state == 'active' %}
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="update">
+            <input type="hidden" name="group_id" value="{{ selected_group.id }}">
+            <label class="field-label">Название
+                <input class="text-input" name="name" value="{{ selected_group.name }}" required>
+            </label>
+            <label class="field-label">Предмет
+                <input class="text-input" name="subject" value="{{ selected_group.subject|default_if_none:'' }}">
+            </label>
+            <button class="button">Сохранить</button>
+        </form>
+        {% endif %}
+        <section class="inspector-section">
+            <h3>Ученики</h3>
+            {% for member in selected_group.members %}
+            <div class="member-row">
+                <a href="/teacher/students/?student={{ member.id }}">{{ member.name }}</a>
+                {% if selected_group.state == 'active' %}
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="remove">
+                    <input type="hidden" name="group_id" value="{{ selected_group.id }}">
+                    <input type="hidden" name="student_id" value="{{ member.id }}">
+                    <button class="secondary-button">Удалить из группы</button>
+                </form>
+                {% endif %}
+            </div>
+            {% empty %}<p class="detail-note">В группе пока нет учеников.</p>{% endfor %}
+            {% if selected_group.state == 'active' and students %}
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="add">
+                <input type="hidden" name="group_id" value="{{ selected_group.id }}">
+                <label class="field-label">Ученик
+                    <select name="student_id">
+                        {% for student in students %}
+                        <option value="{{ student.id }}">{{ student.name }} · {{ student.email }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <button class="secondary-button">Добавить</button>
+            </form>
+            {% endif %}
+        </section>
     </aside>
     {% endif %}
 </div>

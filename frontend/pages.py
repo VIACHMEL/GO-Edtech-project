@@ -1,14 +1,16 @@
 """Страницы прототипа: выбор демонстрационных данных и передача в шаблоны."""
 
 from urllib.parse import urlencode
-from urllib.error import HTTPError, URLError
 
+from django.conf import settings
 from django.contrib.staticfiles import finders
-from django.http import Http404, HttpResponse
-from django.shortcuts import render
-from django.views.decorators.http import require_GET
+from django.http import Http404
+from django.middleware.csrf import rotate_token
+from django.shortcuts import redirect, render
+from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
 import backend_client as backend
+import learning_ui
 
 
 def teacher_context(title, active):
@@ -57,11 +59,27 @@ def teacher_reviews(request):
     return render(request, "teacher_reviews.html", context)
 
 
-@require_GET
+@require_http_methods(["GET", "POST"])
 def teacher_builder(request):
-    context = teacher_context("Конструктор", "builder")
-    context["builder"] = backend.get_teacher_builder()
-    return render(request, "teacher_builder.html", context)
+    token = request.COOKIES.get("go_session", "")
+    filters = {name: request.GET.get(name, "").strip()
+               for name in ("subject", "year", "task_number", "task_type", "limit")}
+    try:
+        profile = backend.get_json("/api/v1/me", token)
+        if profile["role"] != "teacher":
+            raise backend.BackendError(403, "Требуется роль преподавателя.")
+        if request.method == "POST":
+            worksheet_id = learning_ui.create_worksheet(request, token)
+            return redirect(f"/teacher/builder/?worksheet={worksheet_id}")
+        builder = backend.get_teacher_builder(filters, token)
+        assignment_context = learning_ui.builder_assignment_context(request, token)
+    except backend.BackendError as error:
+        return backend_error(request, error)
+    builder["user_id"] = profile["id"]
+    return render(request, "teacher_builder.html", {
+        "profile": profile, "live": True, "page_title": "Конструктор", "active_page": "builder",
+        "builder": builder, "filters": filters, **assignment_context,
+    })
 
 
 def calendar_context(request, audience):
@@ -164,29 +182,74 @@ def student_statistics(request):
 
 @require_GET
 def solve(request):
-    attempt = request.GET.get("attempt")
-    if attempt is None:
-        variant = backend.get_demo_variant(request.GET.get("variant", "w1"))
-    else:
-        if not attempt.isascii() or not attempt.isdecimal() or len(attempt) > 19:
-            raise Http404("Попытка не найдена")
-        try:
-            variant = backend.get_solve_attempt(int(attempt), request.headers.get("Cookie", ""))
-        except HTTPError as error:
-            if error.code == 404:
-                raise Http404("Попытка не найдена") from error
-            if error.code == 401:
-                return HttpResponse("Для просмотра попытки нужен вход.", status=401)
-            return HttpResponse("Попытка временно недоступна.", status=503)
-        except (URLError, TimeoutError, ValueError):
-            return HttpResponse("Попытка временно недоступна.", status=503)
-    if variant is None:
-        raise Http404("Вариант не найден")
-    board_assets_ready = bool(finders.find("solve-board/dist/solve-board.js"))
+    attempt = request.GET.get("attempt", "")
+    if not attempt:
+        return redirect("/student/assignments/")
+    if not attempt.isascii() or not attempt.isdecimal() or len(attempt) > 19:
+        raise Http404("Попытка не найдена")
+    try:
+        variant = backend.get_json(f"/api/v1/attempts/{int(attempt)}/solve", request.COOKIES.get("go_session", ""))
+    except backend.BackendError as error:
+        if error.status == 404:
+            raise Http404("Попытка не найдена") from error
+        return backend_error(request, error)
     response = render(request, "solve.html", {
         "variant": variant,
-        "board_assets_ready": board_assets_ready,
+        "board_assets_ready": bool(finders.find("solve-board/dist/solve-board.js")),
     })
-    if attempt is not None:
-        response["Cache-Control"] = "no-store"
+    response["Cache-Control"] = "no-store"
     return response
+
+
+def backend_error(request, error):
+    if error.status == 401:
+        response = redirect("/login/")
+        response.delete_cookie("go_session")
+        return response
+    return render(request, "login.html", {"error": error.message}, status=error.status)
+
+
+@require_http_methods(["GET", "POST"])
+def login(request):
+    error, status = "", 200
+    if request.method == "POST":
+        try:
+            data = backend.get_json("/api/v1/login", method="POST", data={
+                "email": request.POST.get("email", ""),
+                "password": request.POST.get("password", ""),
+            })
+            profile = backend.get_json("/api/v1/me", data["token"])
+            rotate_token(request)
+            response = redirect("/teacher/" if profile["role"] == "teacher" else "/student/")
+            response.set_cookie("go_session", data["token"], max_age=86400,
+                                httponly=True, secure=settings.SESSION_COOKIE_SECURE,
+                                samesite="Lax", path="/")
+            return response
+        except backend.BackendError as exc:
+            error, status = exc.message, exc.status
+    return render(request, "login.html", {"error": error}, status=status)
+
+
+@require_POST
+def logout(request):
+    try:
+        backend.get_json("/api/v1/logout", request.COOKIES.get("go_session", ""), "POST")
+    except backend.BackendError as error:
+        return backend_error(request, error)
+    response = redirect("/login/")
+    response.delete_cookie("go_session")
+    return response
+
+
+@require_GET
+def account(request):
+    try:
+        profile = backend.get_json("/api/v1/me", request.COOKIES.get("go_session", ""))
+    except backend.BackendError as error:
+        return backend_error(request, error)
+    teacher = profile["role"] == "teacher"
+    return render(request, "teacher.html" if teacher else "student.html", {
+        "profile": profile, "live": True, "page_title": "Профиль",
+        "workspace_role": "Преподаватель" if teacher else "Ученик",
+        "workspace_label": "Кабинет", "workspace_home": "/teacher/" if teacher else "/student/",
+    })

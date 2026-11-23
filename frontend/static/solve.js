@@ -113,13 +113,14 @@ function savePreviewDraft() {
     }
 }
 
-async function attemptRequest(path, method, body) {
-    const options = { method };
+async function attemptRequest(path, body) {
+    const headers = { "X-CSRFToken": document.querySelector("[name=csrfmiddlewaretoken]").value };
+    const options = { method: "POST", headers };
     if (body !== undefined) {
-        options.headers = { "Content-Type": "application/json" };
+        headers["Content-Type"] = "application/json";
         options.body = JSON.stringify(body);
     }
-    const response = await fetch("/api/attempts/" + variant.id + path, options);
+    const response = await fetch("/solve/attempt/" + variant.id + path + "/", options);
     if (!response.ok) {
         const message = response.status === 409
             ? "Попытка или ответ изменились. Обновите страницу перед сохранением."
@@ -133,7 +134,7 @@ async function saveAttemptAnswers() {
     for (const task of variant.tasks) {
         const text = answers[task.id];
         if (text === savedAnswers.get(task.id)) continue;
-        const saved = await attemptRequest("/answers/" + task.id, "PUT", {
+        const saved = await attemptRequest("/answer/" + task.id, {
             text, expected_revision: revisions.get(task.id),
         });
         revisions.set(task.id, saved.answer_revision);
@@ -198,7 +199,7 @@ document.getElementById("solve-confirm").addEventListener("click", async functio
     updateControls();
     try {
         await saveAttemptAnswers();
-        await attemptRequest("/submit", "POST");
+        await attemptRequest("/submit");
         canAnswer = false;
         finishDialog.close();
         solveStatus.textContent = "Работа сдана";
