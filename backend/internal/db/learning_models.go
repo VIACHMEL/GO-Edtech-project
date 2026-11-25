@@ -17,6 +17,7 @@ type Assignment struct {
 	MaxAttempts    int
 	ID             int64
 	WorksheetID    int64
+	WorksheetTitle string
 	StudentID      int64
 	AssignedBy     int64
 	GroupID        *int64

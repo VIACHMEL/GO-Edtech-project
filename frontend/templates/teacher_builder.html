@@ -2,12 +2,60 @@
 {% load static %}
 {% block content %}
 <div class="page-heading"><div><h1>Конструктор вариантов</h1><p class="page-subtitle">Выберите задания и определите порядок</p></div><button class="button" type="button" id="builder-save" disabled>Сохранить черновик</button></div>
-<p class="prototype-note">Черновик сохраняется только в этом браузере. Назначение ученикам появится отдельно.</p>
+<section aria-labelledby="saved-drafts">
+    <h2 class="section-title" id="saved-drafts">Мои черновики</h2>
+    <a href="/teacher/builder/">Новый вариант</a>
+    <ul>{% for draft in drafts %}<li><a href="?draft={{ draft.id }}">{{ draft.title }}</a></li>{% empty %}<li>На этой странице черновиков нет.</li>{% endfor %}</ul>
+    {% if next_before %}<a href="?before={{ next_before }}">Следующая страница вариантов</a>{% endif %}
+    <button class="secondary-button" type="button" id="builder-import" hidden>Перенести старый черновик из браузера</button>
+</section>
+{% if worksheet %}
+    <section aria-labelledby="worksheet-published">
+        <h2 class="section-title" id="worksheet-published">{{ worksheet.title }}</h2>
+        <form method="post" action="/teacher/assignments/issue/" class="registration-form">
+            {% csrf_token %}
+            <input type="hidden" name="worksheet_id" value="{{ worksheet.id }}">
+            <input type="hidden" name="distribution" value="{{ distribution }}">
+            <label>Ученик
+                <select name="student_id" class="text-input" required>
+                    <option value="">Выберите ученика</option>
+                    {% for student in students %}<option value="{{ student.id }}">{{ student.name }}</option>{% endfor %}
+                </select>
+            </label>
+            <button class="button" type="submit"{% if not students %} disabled{% endif %}>Назначить ученику</button>
+        </form>
+        {% if not students %}<p class="field-hint">Сначала добавьте ученика через приглашение.</p>{% endif %}
+    </section>
+{% endif %}
 <div class="builder-layout">
     <aside class="task-bank" aria-labelledby="bank-title">
         <h2 class="section-title" id="bank-title">Банк заданий</h2>
-        <label class="search-field bank-search"><span class="visually-hidden">Найти задание</span><input type="search" id="bank-search" placeholder="Тема или название"></label>
-        <ul>{% for task in builder.tasks %}<li class="bank-item" data-search="{{ task.title }} {{ task.topic }}"><div><h3>{{ task.title }}</h3><p>{{ task.topic }} · {{ task.kind }}</p><span>Баллы: {{ task.max_score }}</span></div><button class="secondary-button" type="button" data-add-task="{{ task.id }}" disabled>Добавить</button></li>{% endfor %}</ul>
+        <form method="get" action="/teacher/builder/">
+            <input type="hidden" name="draft" id="builder-filter-draft" value="{% if builder.worksheet_id %}{{ builder.worksheet_id }}{% endif %}">
+            <label class="field-label">Предмет <input class="text-input" name="subject" value="{{ filters.subject }}"></label>
+            <label class="field-label">Год <input class="text-input" type="number" min="0" name="year" value="{{ filters.year }}"></label>
+            <label class="field-label">Номер <input class="text-input" type="number" min="0" name="task_number" value="{{ filters.task_number }}"></label>
+            <label class="field-label">Тип <input class="text-input" name="task_type" value="{{ filters.task_type }}"></label>
+            <label class="field-label">Лимит <input class="text-input" type="number" min="1" max="100" name="limit" value="{{ filters.limit|default:'20' }}"></label>
+            <button class="secondary-button">Показать</button>
+        </form>
+        <label class="search-field bank-search"><span class="visually-hidden">Поиск в загруженных заданиях</span><input type="search" id="bank-search" placeholder="Поиск в загруженных заданиях"></label>
+        <ul>
+            {% for task in builder.tasks %}
+            <li class="bank-item" data-search="{{ task.subject }} {{ task.task_number }} {{ task.task_type }} {{ task.content_text }}">
+                <div>
+                    <h3>{{ task.subject }} · № {{ task.task_number }}</h3>
+                    <p>{{ task.year }} · {{ task.task_type }}</p>
+                    <details>
+                        <summary>Условие и источник</summary>
+                        <p>{{ task.content_text|linebreaksbr }}</p>
+                        <p>{{ task.source_site }} · {{ task.source_url }}</p>
+                    </details>
+                </div>
+                <button class="secondary-button" type="button" data-add-task="{{ task.id }}" disabled>Добавить</button>
+            </li>
+            {% empty %}<li class="empty-state">Задания не найдены.</li>{% endfor %}
+        </ul>
         <p class="empty-state" id="bank-empty" hidden>Задания не найдены.</p>
     </aside>
     <section class="variant-editor" aria-labelledby="editor-title">
@@ -17,7 +65,12 @@
         <div class="section-heading editor-heading"><h2 class="section-title">Задания</h2><span class="section-hint" id="builder-summary"></span></div>
         <ol id="selected-tasks" class="selected-tasks"></ol>
         <p class="empty-state" id="builder-empty" hidden>Добавьте первое задание из банка слева.</p>
-        <div class="editor-footer"><button class="secondary-button" id="builder-reset" type="button" disabled>Сбросить черновик</button><span class="save-status" id="builder-status" role="status">Черновик ещё не сохранён</span></div>
+        <form method="post" action="/teacher/builder/" id="builder-publish" class="registration-form">
+            {% csrf_token %}
+            <label>Лимит попыток <input class="text-input" type="number" name="max_attempts" value="{{ builder.max_attempts }}" min="1" max="2147483647" required></label>
+            <button class="button" type="submit" disabled>Сохранить и опубликовать</button>
+        </form>
+        <div class="editor-footer"><button class="secondary-button" id="builder-reset" type="button" disabled>Отменить изменения</button><span class="save-status" id="builder-status" role="status">Черновик ещё не сохранён</span></div>
         <noscript><p class="prototype-note">Для добавления и перемещения заданий включите JavaScript.</p></noscript>
     </section>
 </div>

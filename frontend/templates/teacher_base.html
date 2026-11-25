@@ -21,6 +21,7 @@
                     <svg class="nav-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5" cy="4" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="6" cy="12" r="1.5"/></svg>
                     Конструктор
                 </a>
+                <a class="nav-link{% if active_page == 'assignments' %} active{% endif %}" href="/teacher/assignments/"{% if active_page == 'assignments' %} aria-current="page"{% endif %}>Назначенные работы</a>
                 <a class="nav-link{% if active_page == 'calendar' %} active{% endif %}" href="/teacher/calendar/"{% if active_page == 'calendar' %} aria-current="page"{% endif %}>
                     <svg class="nav-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="2"/><path d="M5 1.5v3M11 1.5v3M2 7h12M5 10h2M9 10h2"/></svg>
                     Календарь + CRM

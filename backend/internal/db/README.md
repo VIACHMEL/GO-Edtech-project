@@ -6,6 +6,6 @@
 
  **Контракт для парсеров ():** читать в [docs/contracts/db-parser.md](../../../docs/contracts/db-parser.md).
 
-поднять базу 
+поднять базу
 docker compose ps -a
 docker compose up -d postgres
