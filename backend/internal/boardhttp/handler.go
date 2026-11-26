@@ -24,6 +24,8 @@ func Register(mux *http.ServeMux, store *db.DB, actor Actor, origin string) {
 	h := &Handler{store: store, actor: actor, origin: origin}
 	mux.HandleFunc("GET /api/v1/attempts/{id}/solve", h.solve)
 	mux.HandleFunc("GET /ws/boards/{id}", h.upgrade)
+	mux.HandleFunc("GET /api/v1/boards/{id}/files/{file}", h.getFile)
+	mux.HandleFunc("PUT /api/v1/boards/{id}/files/{file}", h.putFile)
 }
 
 type boardRef struct {

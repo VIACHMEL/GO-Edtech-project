@@ -1,4 +1,21 @@
-import { changedElements, mergeElements, sameScene, trackScene } from "./scene.js";
+import { BoardDraft, boardMessageBytes } from "./board-draft.js";
+import { changedElements, indexElements, mergeElements, sameScene, trackScene } from "./scene.js";
+
+const snapshotTimeout = 10000;
+const idleTimeout = 25000;
+const ackTimeout = 12000;
+const batchDelay = 100;
+const encoder = new TextEncoder();
+
+const draftErrors = {
+    element_conflict: "Объект уже изменил другой участник. Ваши правки остались в этой вкладке.",
+    history_expired: "Доска изменилась, пока вы были отключены. Ваши правки остались в этой вкладке.",
+    operation_rejected: "Сервер отклонил правку доски. Ваши правки остались в этой вкладке.",
+    operation_too_large: "Правка превышает лимит 512 КиБ. Ваши правки остались в этой вкладке.",
+    prepare_failed: "Не удалось загрузить изображение. Ваши правки остались в этой вкладке.",
+};
+
+const retryableErrors = new Set(["element_conflict", "history_expired", "prepare_failed"]);
 
 export function boardSocketURL(path, pageURL) {
     if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) return null;
@@ -8,137 +25,290 @@ export function boardSocketURL(path, pageURL) {
     return url.href;
 }
 
-function readSnapshot(raw) {
+function readFrame(raw) {
     const frame = JSON.parse(raw);
-    if (!Number.isSafeInteger(frame?.seq) || frame.seq < 0 ||
-        typeof frame.can_edit !== "boolean" || !Array.isArray(frame.elements) ||
-        frame.elements.some((element) => !element || typeof element.id !== "string")) {
-        throw new Error("Invalid board snapshot");
+    const type = frame?.type ?? "snapshot";
+    if (type === "access_revoked") return { type };
+    const owner = frame?.draft_owner ?? null;
+    if (!Number.isSafeInteger(frame?.seq) || frame.seq < 0 || typeof frame.can_edit !== "boolean" ||
+        (owner !== null && (!Number.isSafeInteger(owner) || owner < 1)) ||
+        !["snapshot", "delta", "heartbeat"].includes(type)) {
+        throw new Error("Invalid board frame");
     }
-    return frame;
+    if (type !== "heartbeat" && (!Array.isArray(frame.elements) ||
+        frame.elements.some((element) => !element || typeof element.id !== "string"))) {
+        throw new Error("Invalid board elements");
+    }
+    return { ...frame, type, owner: owner === null ? null : String(owner) };
 }
 
-export function createBoardSession(url, { onScene, onStatus }) {
-    const queued = new Map();
+export function createBoardSession(url, { onScene, onStatus, prepareOperation }) {
     let visible = trackScene([]);
-    let socket;
-    let inFlight = null;
-    let receivedSnapshot = false;
-    let canEdit = false;
+    let confirmed = new Map();
+    let draft;
+    let draftOwner = null;
     let lastSeq = -1;
-    let snapshotTimeout;
+    let canEdit = false;
+    let socket;
+    let connected = false;
+    let stopped = false;
+    let denied = false;
+    let preparing;
+    let reconnectCount = 0;
+    let reconnectTimer;
+    let idleTimer;
+    let ackTimer;
+    let flushTimer;
+    let lastStatus;
 
-    function status(text, canReconnect = false) {
-        onStatus({
-            text,
-            canReconnect,
-            canEdit,
-            pending: Boolean(inFlight || queued.size),
-        });
-    }
-
-    function sendNext() {
-        if (inFlight || !queued.size || !canEdit || socket.readyState !== WebSocket.OPEN) return;
-        inFlight = {
-            op_id: crypto.randomUUID(),
-            payload: { elements: [...queued.values()] },
+    function status(text) {
+        const pending = draft?.pending ?? false;
+        const error = draft?.error;
+        const canDiscardDraft = !denied && pending && (Boolean(error) || !canEdit);
+        const canRetryDraft = connected && canEdit && retryableErrors.has(error);
+        if (draft?.storageFailed && pending) {
+            text += " Браузер не сохранил черновик. Оставьте вкладку открытой.";
+        }
+        const next = { text, canEdit: canEdit && !error, pending, canReconnect: !connected,
+            canDiscardDraft, canRetryDraft, ready: Boolean(draft) && !denied, draftOwner,
+            retryOverwritesObjects: error === "element_conflict" || error === "history_expired",
         };
-        queued.clear();
-        socket.send(JSON.stringify(inFlight));
-    }
-
-    function renderSnapshot(frame) {
-        const elements = mergeElements(frame.elements, inFlight?.payload.elements ?? [], queued.values());
-        const next = trackScene(elements);
-        if (!sameScene(visible, next)) {
-            visible = next;
-            onScene(elements);
+        if (!lastStatus || Object.keys(next).some((key) => lastStatus[key] !== next[key])) {
+            lastStatus = next;
+            onStatus(next);
         }
     }
 
-    function receiveSnapshot(frame) {
-        if (frame.seq < lastSeq) return;
-        const firstSnapshot = !receivedSnapshot;
-        receivedSnapshot = true;
-        lastSeq = frame.seq;
-        canEdit = frame.can_edit;
-        if (frame.ack_op_id === inFlight?.op_id) inFlight = null;
-
-        const lostPermission = !canEdit && Boolean(inFlight || queued.size);
-        if (!canEdit) {
-            inFlight = null;
-            queued.clear();
-        }
-        renderSnapshot(frame);
-
-        if (firstSnapshot && canEdit && inFlight) {
-            // The connection may have closed before the acknowledgment arrived.
-            socket.send(JSON.stringify(inFlight));
-        }
-        sendNext();
-
-        if (frame.error) status("Сервер отклонил правку доски.");
-        else if (lostPermission) status("Только просмотр. Сервер не принял последние правки.");
+    function showCurrentStatus() {
+        if (denied) status("Доступ к доске прекращён.");
+        else if (!connected && draft?.pending) status("Переподключаем доску. Есть локальные правки.");
+        else if (!connected) status("Подключаем доску…");
+        else if (!canEdit && draft.pending) status("Только просмотр. Есть локальные правки.");
         else if (!canEdit) status("Только просмотр");
-        else if (inFlight) status("Сохраняем доску…");
+        else if (draft.error) status(draftErrors[draft.error]);
+        else if (draft.pending) status("Сохраняем доску…");
         else status("Доска синхронизирована");
     }
 
-    function connect() {
-        if (socket && socket.readyState < WebSocket.CLOSING) return;
-        receivedSnapshot = false;
-        lastSeq = -1;
+    function render(force = false) {
+        const elements = mergeElements(confirmed.values(), draft?.sentElements ?? [], draft?.queuedElements ?? []);
+        const next = trackScene(elements);
+        if (force || !sameScene(visible, next)) {
+            visible = next;
+            onScene(elements, { draftOwner });
+        }
+    }
+
+    function canFlush() {
+        return connected && draft.pending && !draft.error && (canEdit || draft.inFlight?.attempted);
+    }
+
+    async function flush() {
+        flushTimer = undefined;
+        if (!canFlush() || ackTimer || preparing) return;
+        if (!draft.inFlight) draft.startOperation();
+        const currentDraft = draft;
+        const entry = currentDraft.inFlight;
+        if (!entry.prepared && prepareOperation) {
+            preparing = entry;
+            try {
+                const elements = await prepareOperation(entry.operation.payload.elements, { draftOwner });
+                if (!Array.isArray(elements)) throw new Error("Invalid prepared elements");
+                if (draft !== currentDraft || draft.inFlight !== entry || stopped) return;
+                entry.operation.payload.elements = elements;
+            } catch {
+                if (draft === currentDraft && draft.inFlight === entry && !stopped) {
+                    draft.error = "prepare_failed";
+                    draft.persist();
+                    showCurrentStatus();
+                }
+                return;
+            } finally {
+                if (preparing === entry) preparing = undefined;
+            }
+        }
+        entry.prepared = true;
+        const message = JSON.stringify(entry.operation);
+        if (encoder.encode(message).length > boardMessageBytes) {
+            currentDraft.error = "operation_too_large";
+            currentDraft.persist();
+            showCurrentStatus();
+            return;
+        }
+        if (!canFlush() || socket.readyState !== WebSocket.OPEN) {
+            currentDraft.persist();
+            return;
+        }
+        entry.attempted = true;
+        currentDraft.persist();
+        const connection = socket;
+        ackTimer = setTimeout(() => disconnect(connection), ackTimeout);
+        try {
+            connection.send(message);
+        } catch {
+            disconnect(connection);
+        }
+    }
+
+    function scheduleFlush() {
+        if (!flushTimer && canFlush()) {
+            flushTimer = setTimeout(flush, batchDelay);
+        }
+    }
+
+    function revokeAccess(connection) {
+        denied = true;
+        connected = false;
         canEdit = false;
-        status("Подключаем доску…");
-        const connection = new WebSocket(url);
+        lastSeq = -1;
+        draft = undefined;
+        draftOwner = null;
+        confirmed.clear();
+        render(true);
+        disconnect(connection);
+    }
+
+    function receive(frame, connection) {
+        if (frame.type === "access_revoked" || (draft && draftOwner !== frame.owner)) {
+            revokeAccess(connection);
+            return;
+        }
+        if ((!connected && frame.type !== "snapshot") ||
+            (connected && frame.seq < lastSeq) ||
+            (frame.type === "delta" && frame.seq !== lastSeq + 1) ||
+            (frame.type === "heartbeat" && frame.seq !== lastSeq)) {
+            disconnect(connection);
+            return;
+        }
+
+        const firstScene = !draft;
+        if (firstScene) {
+            draftOwner = frame.owner;
+            draft = new BoardDraft(url, draftOwner);
+        }
+        if (frame.type === "snapshot") {
+            confirmed = indexElements(frame.elements.filter((element) => !element.isDeleted));
+        }
+        if (frame.type === "delta") {
+            for (const element of frame.elements) {
+                if (element.isDeleted) confirmed.delete(element.id);
+                else confirmed.set(element.id, element);
+            }
+        }
+        canEdit = frame.can_edit;
+        lastSeq = frame.seq;
+        reconnectCount = 0;
+        connected = true;
+
+        if (draft.inFlight && frame.ack_op_id === draft.inFlight.operation.op_id) {
+            clearTimeout(ackTimer);
+            ackTimer = undefined;
+            if (frame.error) {
+                draft.error = Object.hasOwn(draftErrors, frame.error) ? frame.error : "operation_rejected";
+                draft.persist();
+            } else {
+                draft.acknowledge(confirmed, lastSeq, frame.type === "delta");
+            }
+        }
+        render(firstScene);
+        scheduleFlush();
+        showCurrentStatus();
+    }
+
+    function scheduleReconnect() {
+        if (stopped || denied) return;
+        const delay = Math.min(15000, 500 * 2 ** Math.min(reconnectCount++, 5));
+        reconnectTimer = setTimeout(connect, delay * (0.8 + Math.random() * 0.2));
+    }
+
+    function clearTimers() {
+        clearTimeout(idleTimer);
+        clearTimeout(ackTimer);
+        clearTimeout(flushTimer);
+        ackTimer = undefined;
+        flushTimer = undefined;
+    }
+
+    function disconnect(connection) {
+        if (socket !== connection) return;
+        socket = undefined;
+        connected = false;
+        clearTimers();
+        if (connection.readyState < WebSocket.CLOSING) connection.close();
+        showCurrentStatus();
+        scheduleReconnect();
+    }
+
+    function connect() {
+        if (stopped || (socket && socket.readyState < WebSocket.CLOSING)) return;
+        clearTimeout(reconnectTimer);
+        clearTimers();
+        denied = false;
+        connected = false;
+        showCurrentStatus();
+        let connection;
+        try {
+            connection = new WebSocket(url);
+        } catch {
+            scheduleReconnect();
+            return;
+        }
         socket = connection;
-        let failure = "";
-        snapshotTimeout = setTimeout(() => {
-            failure = "Доска не ответила вовремя.";
-            connection.close();
-        }, 10000);
+        idleTimer = setTimeout(() => disconnect(connection), snapshotTimeout);
         connection.onmessage = ({ data }) => {
             if (socket !== connection) return;
             let frame;
             try {
-                frame = readSnapshot(data);
+                frame = readFrame(data);
             } catch {
-                failure = "Сервер прислал некорректные данные доски.";
-                connection.close();
+                disconnect(connection);
                 return;
             }
-            clearTimeout(snapshotTimeout);
-            receiveSnapshot(frame);
+            clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => disconnect(connection), idleTimeout);
+            receive(frame, connection);
         };
-        connection.onclose = () => {
+        connection.onclose = ({ code }) => {
             if (socket !== connection) return;
-            clearTimeout(snapshotTimeout);
-            canEdit = false;
-            const message = inFlight || queued.size
-                ? "Связь прервана. Есть правки без подтверждения."
-                : "Доска отключена.";
-            status(failure || message, true);
+            if (code === 1008) revokeAccess(connection);
+            else disconnect(connection);
         };
     }
 
     function edit(elements) {
-        if (!canEdit) return;
+        if (!canEdit || draft.error) return;
         const next = trackScene(elements);
         const changes = changedElements(visible, next);
         if (!changes.length) return;
         visible = next;
-        for (const element of changes) queued.set(element.id, structuredClone(element));
-        sendNext();
-        status("Сохраняем доску…");
+        draft.add(changes, lastSeq);
+        scheduleFlush();
+        showCurrentStatus();
     }
 
     return {
         connect,
         edit,
+        retryDraft() {
+            if (!connected || !canEdit || !retryableErrors.has(draft.error)) return;
+            draft.retry(lastSeq);
+            scheduleFlush();
+            showCurrentStatus();
+        },
+        discardDraft() {
+            if (!draft?.pending || (!draft.error && canEdit)) return;
+            clearTimeout(ackTimer);
+            ackTimer = undefined;
+            draft.discard();
+            render();
+            showCurrentStatus();
+        },
         close() {
+            stopped = true;
+            clearTimeout(reconnectTimer);
+            clearTimers();
             const previous = socket;
-            socket = null;
-            clearTimeout(snapshotTimeout);
+            socket = undefined;
             previous?.close();
         },
     };
