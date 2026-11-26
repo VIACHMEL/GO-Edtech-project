@@ -23,11 +23,12 @@ const upsertTaskQuery = `
     ),
     inserted_version AS (
         INSERT INTO task_versions
-            (task_id, content_text, answer, solution, content_hash, version_number)
+            (task_id, content_text, answer, solution, content_hash, version_number, condition_html)
         SELECT
             ut.id, $9, $10, $11, $12,
             COALESCE((SELECT MAX(version_number) FROM task_versions
-                      WHERE task_id = ut.id), 0) + 1
+                      WHERE task_id = ut.id), 0) + 1,
+            CASE WHEN $2 = 'kompege.ru' THEN COALESCE($8::jsonb->>'content_html', '') ELSE '' END
         FROM upserted_task ut
         ON CONFLICT (task_id, content_hash) DO UPDATE SET
             answer = EXCLUDED.answer,

@@ -276,6 +276,11 @@ textarea.text-input { resize: vertical; }
 .review-answer { min-width: 0; padding: 0 24px; }
 .review-answer > h2 { font-size: 19px; }
 .task-condition { margin: 18px 0 24px; color: #d2d2d7; font-size: 15px; line-height: 1.9; overflow-wrap: anywhere; }
+.task-condition img { display: block; max-width: 100%; height: auto; margin: 8px 0; }
+.task-condition table, .task-condition pre { display: block; max-width: 100%; overflow-x: auto; }
+.task-condition th, .task-condition td { padding: 4px 8px; border: 1px solid #6f6f78; }
+.task-materials { overflow-wrap: anywhere; }
+.task-materials a { text-decoration: underline; }
 .answer-section { margin-top: 25px; border-top: 1px solid var(--border); padding-top: 18px; }
 .answer-section > h3 { font-size: 13px; margin-bottom: 13px; }
 .written-answer { font-size: 14px; color: #d0d0d5; line-height: 1.9; white-space: pre-wrap; }

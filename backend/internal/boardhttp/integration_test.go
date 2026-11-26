@@ -49,7 +49,7 @@ func TestBoardCollaborationPostgres(t *testing.T) {
 	start := func(store *db.DB) *httptest.Server {
 		mux := http.NewServeMux()
 		server := httptest.NewUnstartedServer(mux)
-		Register(mux, store, actor, "http://"+server.Listener.Addr().String())
+		Register(mux, store, actor, "http://"+server.Listener.Addr().String(), "")
 		server.Start()
 		t.Cleanup(server.Close)
 		return server

@@ -59,6 +59,7 @@ type SolveAttempt struct {
 
 type SolveTask struct {
 	ItemID, BoardID int64
+	VersionID       int64
 	Position        int
 	Part            *int16
 	Prompt, Answer  string
@@ -101,7 +102,7 @@ func (db *DB) GetSolveAttempt(ctx context.Context, actor, attemptID int64) (Solv
 		if err := tx.QueryRow(ctx, "SELECT title FROM worksheets WHERE id=$1", a.WorksheetID).Scan(&result.Title); err != nil {
 			return err
 		}
-		rows, err := tx.Query(ctx, `SELECT i.id,i.position,i.exam_part_snapshot,COALESCE(i.content_snapshot,''),
+		rows, err := tx.Query(ctx, `SELECT i.id,i.task_version_id,i.position,i.exam_part_snapshot,COALESCE(i.content_snapshot,''),
     COALESCE(ans.answer_text,''),ans.answer_revision
 FROM attempt_answers ans JOIN worksheet_items i ON i.id=ans.worksheet_item_id
 WHERE ans.attempt_id=$1 ORDER BY i.position`, a.ID)
@@ -110,7 +111,7 @@ WHERE ans.attempt_id=$1 ORDER BY i.position`, a.ID)
 		}
 		tasks, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (SolveTask, error) {
 			var t SolveTask
-			err := row.Scan(&t.ItemID, &t.Position, &t.Part, &t.Prompt, &t.Answer, &t.Revision)
+			err := row.Scan(&t.ItemID, &t.VersionID, &t.Position, &t.Part, &t.Prompt, &t.Answer, &t.Revision)
 			return t, err
 		})
 		if err != nil {

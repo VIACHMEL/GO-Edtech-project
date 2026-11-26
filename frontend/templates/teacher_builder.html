@@ -48,7 +48,14 @@
                     <p>{{ task.year }} · {{ task.task_type }}</p>
                     <details>
                         <summary>Условие и источник</summary>
-                        <p>{{ task.content_text|linebreaksbr }}</p>
+                        <div class="task-condition">{% if task.condition_html %}{{ task.condition_html|safe }}{% else %}{{ task.content_text|linebreaksbr }}{% endif %}</div>
+                        {% if task.materials %}
+                            <ul class="task-materials">
+                                {% for material in task.materials %}
+                                    <li><a href="{{ material.url }}">{{ material.name }}</a></li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
                         <p>{{ task.source_site }} · {{ task.source_url }}</p>
                     </details>
                 </div>

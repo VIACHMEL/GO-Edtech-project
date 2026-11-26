@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -215,6 +216,9 @@ func (c *boardConnection) loadSnapshot(message frame) bool {
 		_ = c.send(frame{Type: "access_revoked"})
 	}
 	if err != nil {
+		if !errors.Is(err, db.ErrNotFound) {
+			log.Printf("доска %d: обновление снимка прервано: %v", c.id, err)
+		}
 		return false
 	}
 	message.BoardSnapshot = current
@@ -228,6 +232,9 @@ func (c *boardConnection) readMeta() (db.BoardMeta, bool) {
 	current, err := c.handler.store.GetBoardMeta(c.request.Context(), c.actor, c.id)
 	if errors.Is(err, db.ErrNotFound) {
 		_ = c.send(frame{Type: "access_revoked"})
+	}
+	if err != nil && !errors.Is(err, db.ErrNotFound) {
+		log.Printf("доска %d: проверка ревизии прервана: %v", c.id, err)
 	}
 	return current, err == nil
 }
@@ -268,6 +275,7 @@ func (c *boardConnection) apply(input wireOperation, changes chan boardChange) b
 		_ = c.send(frame{Type: "access_revoked"})
 		return false
 	case err != nil:
+		log.Printf("доска %d: операция прервана: %v", c.id, err)
 		return false
 	case len(result.Conflicts) != 0:
 		reply.Error = "element_conflict"
