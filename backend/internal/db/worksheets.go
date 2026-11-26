@@ -19,6 +19,7 @@ var (
 )
 
 type Worksheet struct {
+	Revision    int64
 	ID          int64
 	TeacherID   int64
 	Title       string
@@ -40,12 +41,12 @@ type WorksheetItem struct {
 	Settings map[string]any
 }
 
-const worksheetColumns = "id,teacher_id,title,subject,status,created_at,published_at,updated_at,max_attempts"
+const worksheetColumns = "id,teacher_id,title,subject,status,created_at,published_at,updated_at,max_attempts,revision"
 const worksheetItemColumns = "id,worksheet_id,task_version_id,position,max_score::text,settings"
 
 func scanWorksheet(row pgx.Row) (*Worksheet, error) {
 	w := new(Worksheet)
-	err := row.Scan(&w.ID, &w.TeacherID, &w.Title, &w.Subject, &w.Status, &w.CreatedAt, &w.PublishedAt, &w.UpdatedAt, &w.MaxAttempts)
+	err := row.Scan(&w.ID, &w.TeacherID, &w.Title, &w.Subject, &w.Status, &w.CreatedAt, &w.PublishedAt, &w.UpdatedAt, &w.MaxAttempts, &w.Revision)
 	return w, worksheetError(err)
 }
 
@@ -182,23 +183,7 @@ func (db *DB) PublishWorksheet(ctx context.Context, teacherID, id int64) error {
 		if w.Status != "draft" {
 			return ErrWorksheetLocked
 		}
-		var count int
-		if err := tx.QueryRow(ctx, "SELECT count(*) FROM worksheet_items WHERE worksheet_id=$1", id).Scan(&count); err != nil {
-			return err
-		}
-		if count == 0 {
-			return fmt.Errorf("%w: cannot publish an empty worksheet", ErrValidation)
-		}
-		if _, err := tx.Exec(ctx, `UPDATE worksheet_items i
-SET content_snapshot=v.content_text, answer_snapshot=v.answer, solution_snapshot=v.solution,
-    task_type_snapshot=t.task_type,
-    exam_part_snapshot=task_exam_part(t.exam_type,t.subject,t.task_number,t.metadata)
-FROM task_versions v JOIN tasks t ON t.id=v.task_id
-WHERE i.worksheet_id=$1 AND i.task_version_id=v.id`, id); err != nil {
-			return err
-		}
-		_, err := tx.Exec(ctx, "UPDATE worksheets SET status='published',published_at=now(),updated_at=now() WHERE id=$1", id)
-		return err
+		return publishWorksheet(ctx, tx, w)
 	})
 }
 
@@ -360,4 +345,24 @@ func (db *DB) ReorderWorksheetItems(ctx context.Context, teacherID, id int64, it
 		_, err := tx.Exec(ctx, "UPDATE worksheets SET updated_at=now() WHERE id=$1", id)
 		return err
 	})
+}
+
+func publishWorksheet(ctx context.Context, tx pgx.Tx, w *Worksheet) error {
+	var count int
+	if err := tx.QueryRow(ctx, "SELECT count(*) FROM worksheet_items WHERE worksheet_id=$1", w.ID).Scan(&count); err != nil {
+		return err
+	}
+	if count == 0 {
+		return fmt.Errorf("%w: cannot publish an empty worksheet", ErrValidation)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE worksheet_items i
+SET content_snapshot=v.content_text, answer_snapshot=v.answer, solution_snapshot=v.solution,
+    task_type_snapshot=t.task_type,
+    exam_part_snapshot=task_exam_part(t.exam_type,t.subject,t.task_number,t.metadata)
+FROM task_versions v JOIN tasks t ON t.id=v.task_id
+WHERE i.worksheet_id=$1 AND i.task_version_id=v.id`, w.ID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, "UPDATE worksheets SET status='published',published_at=now(),updated_at=now() WHERE id=$1", w.ID)
+	return err
 }

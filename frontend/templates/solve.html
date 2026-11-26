@@ -26,7 +26,6 @@
                     <span class="task-nav-state">Не отвечено</span>
                 </button>
             {% endfor %}
-            {% if not variant.status %}<p class="prototype-note">Ответы не проверяются автоматически.</p>{% endif %}
         </nav>
         <div class="solve-content">
             <div class="solve-workspace">
@@ -57,10 +56,9 @@
     <dialog class="confirm-dialog" id="finish-dialog" aria-labelledby="finish-title">
         <h2 id="finish-title">Перед завершением</h2>
         <p id="finish-summary"></p>
-        {% if not variant.status %}<p class="prototype-note">Это демонстрация: ответы не отправляются, результат не оценивается.</p>{% endif %}
         <div class="dialog-actions">
             <button class="secondary-button" id="solve-continue" type="button">Продолжить решение</button>
-            <button class="button" id="solve-confirm" type="button">{% if variant.status %}Сдать работу{% else %}Посмотреть итог{% endif %}</button>
+            <button class="button" id="solve-confirm" type="button">Сдать работу</button>
         </div>
     </dialog>
     {{ variant|json_script:"variant-data" }}

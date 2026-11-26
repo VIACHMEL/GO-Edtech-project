@@ -168,6 +168,10 @@ func main() {
 		})
 	}
 
+	for _, pattern := range []string{"POST /api/v1/teacher/worksheets/draft", "GET /api/v1/teacher/worksheets/{id}/draft", "PUT /api/v1/teacher/worksheets/{id}/draft"} {
+		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) { worksheetDraft(w, r, store, sessionStore) })
+	}
+
 	boardhttp.Register(mux, store, boardActor(store, sessionStore), os.Getenv("BOARD_ORIGIN"))
 	if djangoURL := os.Getenv("DJANGO_PROXY_URL"); djangoURL != "" {
 		target, err := url.Parse(djangoURL)

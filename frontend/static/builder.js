@@ -1,181 +1,189 @@
 const builderData = JSON.parse(document.getElementById("builder-data").textContent);
-for (const task of builderData.tasks) task.id = String(task.id);
-const draftKey = "go-edtech:builder:" + builderData.user_id + ":v2";
 const titleInput = document.getElementById("variant-title");
 const selectedList = document.getElementById("selected-tasks");
 const builderStatus = document.getElementById("builder-status");
 const publishForm = document.getElementById("builder-publish");
-let selectedIds = builderData.selected_ids.slice();
+const maxAttempts = publishForm.elements.max_attempts;
+const saveButton = document.getElementById("builder-save");
+const resetButton = document.getElementById("builder-reset");
+const importButton = document.getElementById("builder-import");
+const draftKey = "go-edtech:builder:" + builderData.user_id + ":v2";
+let worksheetId = builderData.worksheet_id;
+let revision = builderData.revision;
+let selected = structuredClone(builderData.selected_tasks);
+let busy = false;
+let importedLegacy = false;
+maxAttempts.value = builderData.max_attempts;
 
-function findTask(id) {
-    for (const task of builderData.tasks) {
-        if (task.id === id) return task;
-    }
-    return null;
+function snapshot() {
+    return JSON.stringify({title: titleInput.value, attempts: maxAttempts.value, selected});
 }
-
-function taskButton(label, action, id, disabled) {
+let savedSnapshot = snapshot();
+function dirty() { return snapshot() !== savedSnapshot; }
+function changed() { builderStatus.textContent = dirty() ? "Есть несохранённые изменения" : "Изменений нет"; }
+function taskButton(label, action, index, disabled) {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "secondary-button task-action";
+    button.className = "secondary-button";
     button.textContent = label;
     button.dataset.action = action;
-    button.dataset.task = id;
+    button.dataset.index = index;
     button.disabled = disabled;
     return button;
 }
-
 function renderSelectedTasks() {
     selectedList.replaceChildren();
-    for (let index = 0; index < selectedIds.length; index += 1) {
-        const task = findTask(selectedIds[index]);
+    selected.forEach((task, index) => {
         const row = document.createElement("li");
         row.className = "selected-task";
-        const number = document.createElement("span");
-        number.className = "task-number";
-        number.textContent = index + 1;
         const content = document.createElement("div");
         const title = document.createElement("h3");
-        title.textContent = task.subject + " · № " + task.task_number;
-        const detail = document.createElement("p");
-        detail.textContent = task.task_type || "";
+        title.textContent = (index + 1) + ". " + task.subject + " · № " + task.task_number;
         const prompt = document.createElement("p");
         prompt.textContent = task.content_text;
         const controls = document.createElement("div");
         controls.className = "task-controls";
-        controls.append(
-            taskButton("Выше", "up", task.id, index === 0),
-            taskButton("Ниже", "down", task.id, index === selectedIds.length - 1),
-            taskButton("Удалить", "remove", task.id, false)
-        );
-        content.append(title, detail, prompt, controls);
-        row.append(number, content);
+        controls.append(taskButton("Выше", "up", index, index === 0 || busy),
+            taskButton("Ниже", "down", index, index === selected.length - 1 || busy),
+            taskButton("Удалить", "remove", index, busy));
+        content.append(title, prompt, controls);
+        row.append(content);
         selectedList.append(row);
-    }
-    document.getElementById("builder-empty").hidden = selectedIds.length !== 0;
-    publishForm.querySelector("button").disabled = selectedIds.length === 0;
-    document.getElementById("builder-summary").textContent = selectedIds.length + " заданий";
+    });
+    document.getElementById("builder-empty").hidden = selected.length !== 0;
+    document.getElementById("builder-summary").textContent = selected.length + " заданий";
     for (const button of document.querySelectorAll("[data-add-task]")) {
-        const selected = selectedIds.includes(button.dataset.addTask);
-        button.disabled = selected;
-        button.textContent = selected ? "Добавлено" : "Добавить";
+        const added = selected.some(task => String(task.id) === button.dataset.addTask);
+        button.disabled = busy || added;
+        button.textContent = added ? "Добавлено" : "Добавить";
     }
+    saveButton.disabled = busy;
+    resetButton.disabled = busy;
+    importButton.disabled = busy;
+    titleInput.disabled = busy;
+    maxAttempts.disabled = busy;
+    publishForm.querySelector("button").disabled = busy || !selected.length;
 }
-
-try {
-    const savedText = localStorage.getItem(draftKey);
-    if (savedText) {
-        const saved = JSON.parse(savedText);
-        if (typeof saved.title !== "string" || !Array.isArray(saved.task_ids)) {
-            throw new Error("Invalid draft");
-        }
-        // Keep selected tasks when the next server filter returns a different set.
-        if (Array.isArray(saved.tasks)) {
-            for (const task of saved.tasks) {
-                if (task && typeof task.id === "string" && saved.task_ids.includes(task.id) && !findTask(task.id)) {
-                    builderData.tasks.push(task);
-                }
-            }
-        }
-        const validIds = [];
-        for (const id of saved.task_ids) {
-            if (findTask(id) && !validIds.includes(id)) validIds.push(id);
-        }
-        selectedIds = validIds;
-        titleInput.value = saved.title.slice(0, 120);
-        builderStatus.textContent = "Загружен черновик из этого браузера";
-    }
-} catch (error) {
-    builderStatus.textContent = "Локальный черновик недоступен. Можно работать без сохранения.";
-}
-renderSelectedTasks();
-
-publishForm.addEventListener("submit", function (event) {
-    const selected = selectedIds.map(findTask);
-    const versions = selected.map((task) => task?.current_version_id);
+function validateSelection() {
     const subject = selected[0]?.subject;
-    if (!titleInput.value.trim() || !subject || selected.some((task) => task?.subject !== subject) ||
-        versions.some((id) => !Number.isSafeInteger(id) || id <= 0)) {
-        event.preventDefault();
-        builderStatus.textContent = "Укажите название и выберите задания одного предмета.";
-        return;
+    if (!titleInput.value.trim() || titleInput.value.trim().length > 120 || !subject ||
+        selected.length > 100 || selected.some(task => task.subject !== subject ||
+            !Number.isSafeInteger(task.task_version_id) || task.task_version_id <= 0) ||
+        !maxAttempts.checkValidity()) {
+        throw new Error("Укажите название, лимит попыток и от 1 до 100 заданий одного предмета.");
     }
-    publishForm.elements.title.value = titleInput.value.trim();
-    publishForm.elements.subject.value = subject;
-    publishForm.elements.version_ids.value = JSON.stringify(versions);
-    publishForm.querySelector("button").disabled = true;
-});
-
+    return subject;
+}
+async function saveDraft(publish) {
+    if (busy) return;
+    try {
+        const subject = validateSelection();
+        const payload = { worksheet_id: worksheetId, expected_revision: revision,
+            title: titleInput.value.trim(), subject, max_attempts: Number(maxAttempts.value), publish,
+            items: selected.map(task => ({task_version_id: task.task_version_id,
+                max_score: task.max_score ?? "1.00", settings: task.settings ?? {}})) };
+        busy = true;
+        renderSelectedTasks();
+        builderStatus.textContent = "Сохраняем вариант…";
+        const response = await fetch("/teacher/builder/save/", {
+            method: "POST", headers: {"Content-Type": "application/json",
+                "X-CSRFToken": publishForm.querySelector("[name=csrfmiddlewaretoken]").value},
+            body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+            if (response.status === 409) throw new Error("Черновик изменён в другой вкладке или уже опубликован. Ваши изменения остались на странице; откройте сохранённый вариант отдельно.");
+            throw new Error("Не удалось сохранить вариант. Изменения остались на странице; попробуйте ещё раз.");
+        }
+        const saved = await response.json();
+        worksheetId = saved.id;
+        revision = saved.revision;
+        titleInput.value = saved.title;
+        savedSnapshot = snapshot();
+        if (importedLegacy) {
+            try { localStorage.removeItem(draftKey); } catch { /* The database save succeeded. */ }
+            importedLegacy = false;
+            importButton.hidden = true;
+        }
+        if (publish) {
+            busy = false;
+            window.location.assign("/teacher/builder/?worksheet=" + worksheetId);
+            return;
+        }
+        const url = new URL(window.location.href);
+        url.searchParams.set("draft", worksheetId);
+        url.searchParams.delete("worksheet");
+        window.history.replaceState(null, "", url);
+        document.getElementById("builder-filter-draft").value = worksheetId;
+        builderStatus.textContent = "Черновик сохранён на сервере";
+    } catch (error) {
+        builderStatus.textContent = error.message;
+    } finally {
+        busy = false;
+        renderSelectedTasks();
+    }
+}
+saveButton.addEventListener("click", () => saveDraft(false));
+publishForm.addEventListener("submit", event => { event.preventDefault(); saveDraft(true); });
 for (const button of document.querySelectorAll("[data-add-task]")) {
-    button.addEventListener("click", function () {
-        const id = button.dataset.addTask;
-        if (findTask(id) && !selectedIds.includes(id)) {
-            selectedIds.push(id);
-            renderSelectedTasks();
-            builderStatus.textContent = "Есть несохранённые изменения";
+    button.addEventListener("click", () => {
+        if (busy) return;
+        const task = builderData.tasks.find(task => String(task.id) === button.dataset.addTask);
+        if (task && !selected.some(item => item.id === task.id)) {
+            selected.push({...task, task_version_id: task.current_version_id, max_score: "1.00", settings: {}});
+            renderSelectedTasks(); changed();
         }
     });
 }
-
-selectedList.addEventListener("click", function (event) {
+selectedList.addEventListener("click", event => {
     const button = event.target.closest("button[data-action]");
-    if (!button) return;
-    const index = selectedIds.indexOf(button.dataset.task);
-    if (index < 0) return;
-    if (button.dataset.action === "remove") {
-        selectedIds.splice(index, 1);
-    } else {
-        const nextIndex = button.dataset.action === "up" ? index - 1 : index + 1;
-        if (nextIndex < 0 || nextIndex >= selectedIds.length) return;
-        const otherId = selectedIds[nextIndex];
-        selectedIds[nextIndex] = selectedIds[index];
-        selectedIds[index] = otherId;
+    if (!button || busy) return;
+    const index = Number(button.dataset.index);
+    if (button.dataset.action === "remove") selected.splice(index, 1);
+    else {
+        const next = index + (button.dataset.action === "up" ? -1 : 1);
+        if (next < 0 || next >= selected.length) return;
+        [selected[index], selected[next]] = [selected[next], selected[index]];
     }
-    renderSelectedTasks();
-    builderStatus.textContent = "Есть несохранённые изменения";
+    renderSelectedTasks(); changed();
 });
-
-titleInput.addEventListener("input", function () {
-    builderStatus.textContent = "Есть несохранённые изменения";
+titleInput.addEventListener("input", changed);
+maxAttempts.addEventListener("input", changed);
+resetButton.addEventListener("click", () => {
+    const saved = JSON.parse(savedSnapshot);
+    titleInput.value = saved.title;
+    maxAttempts.value = saved.attempts;
+    selected = saved.selected;
+    importedLegacy = false;
+    renderSelectedTasks(); changed();
 });
-
-const saveButton = document.getElementById("builder-save");
-saveButton.disabled = false;
-saveButton.addEventListener("click", function () {
-    if (!titleInput.value.trim()) {
-        titleInput.focus();
-        builderStatus.textContent = "Введите название варианта";
-        return;
-    }
+// Old browser drafts are offered explicitly and removed only after a successful server save.
+try { importButton.hidden = !localStorage.getItem(draftKey); } catch { importButton.hidden = true; }
+importButton.addEventListener("click", () => {
+    if (busy || (dirty() && !window.confirm("Заменить несохранённые изменения старым черновиком из браузера?"))) return;
     try {
-        localStorage.setItem(draftKey, JSON.stringify({title: titleInput.value.trim(), task_ids: selectedIds, tasks: selectedIds.map(findTask)}));
-        builderStatus.textContent = "Черновик сохранён в этом браузере";
-    } catch (error) {
-        builderStatus.textContent = "Не удалось сохранить черновик в браузере";
-    }
+        const saved = JSON.parse(localStorage.getItem(draftKey));
+        if (!saved || typeof saved.title !== "string" || !Array.isArray(saved.task_ids)) throw new Error();
+        const candidates = [...(Array.isArray(saved.tasks) ? saved.tasks : []), ...builderData.tasks];
+        const restored = saved.task_ids.map(id => candidates.find(task => String(task?.id) === String(id)));
+        if (!restored.length || restored.some(task => !task || !Number.isSafeInteger(task.current_version_id))) throw new Error();
+        selected = restored.map(task => ({...task, task_version_id: task.current_version_id, max_score: "1.00", settings: {}}));
+        titleInput.value = saved.title.slice(0, 120);
+        importedLegacy = true;
+        renderSelectedTasks();
+        builderStatus.textContent = "Старый черновик открыт. Нажмите «Сохранить черновик» для записи на сервер.";
+    } catch { builderStatus.textContent = "Старый черновик не удалось прочитать. Он не удалён."; }
 });
-
-const resetButton = document.getElementById("builder-reset");
-resetButton.disabled = false;
-resetButton.addEventListener("click", function () {
-    try {
-        localStorage.removeItem(draftKey);
-    } catch (error) {
-        builderStatus.textContent = "Не удалось удалить локальный черновик";
-        return;
-    }
-    selectedIds = builderData.selected_ids.slice();
-    titleInput.value = builderData.draft_title;
-    renderSelectedTasks();
-    builderStatus.textContent = "Черновик очищен";
+window.addEventListener("beforeunload", event => {
+    if (dirty() || busy) { event.preventDefault(); event.returnValue = ""; }
 });
-
-document.getElementById("bank-search").addEventListener("input", function (event) {
+document.getElementById("bank-search").addEventListener("input", event => {
     const query = event.target.value.trim().toLocaleLowerCase("ru");
-    let visibleCount = 0;
+    let count = 0;
     for (const item of document.querySelectorAll(".bank-item")) {
         item.hidden = !item.dataset.search.toLocaleLowerCase("ru").includes(query);
-        if (!item.hidden) visibleCount += 1;
+        if (!item.hidden) count++;
     }
-    document.getElementById("bank-empty").hidden = visibleCount !== 0;
+    document.getElementById("bank-empty").hidden = count !== 0;
 });
+builderStatus.textContent = worksheetId ? "Черновик загружен с сервера" : "Черновик ещё не сохранён";
+renderSelectedTasks();

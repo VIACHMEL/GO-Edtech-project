@@ -10,35 +10,21 @@ from django.views.decorators.http import require_GET, require_POST
 import backend_client as backend
 
 
-def create_worksheet(request, token):
-    title = request.POST.get("title", "").strip()
-    subject = request.POST.get("subject", "").strip()
+@require_POST
+def save_worksheet(request):
     try:
-        version_ids = json.loads(request.POST.get("version_ids", ""))
-        max_attempts = int(request.POST.get("max_attempts", ""))
-        if not isinstance(version_ids, list) or not 1 <= len(version_ids) <= 100:
+        payload = json.loads(request.body)
+        worksheet_id = payload.pop("worksheet_id", 0)
+        if type(worksheet_id) is not int or not 0 <= worksheet_id < 2**63:
             raise ValueError
-        if any(type(value) is not int or not 0 < value < 2**63 for value in version_ids):
-            raise ValueError
-        if not 1 <= len(title) <= 120 or not 1 <= len(subject) <= 64 or not 1 <= max_attempts < 2**31:
-            raise ValueError
-    except (ValueError, TypeError):
-        raise backend.BackendError(400, "Укажите название, лимит попыток и задания одного предмета.")
-
+    except (ValueError, TypeError, AttributeError):
+        return JsonResponse({"error": "Некорректный черновик."}, status=400)
     path = "/api/v1/teacher/worksheets"
-    draft = backend.get_json(path, token, "POST", {
-        "title": title, "subject": subject, "max_attempts": max_attempts,
-    })
-    path += "/" + str(draft["id"])
-    try:
-        for position, version_id in enumerate(version_ids, start=1):
-            backend.get_json(path + "/items", token, "POST", {
-                "task_version_id": version_id, "position": position, "max_score": "1.00",
-            })
-        backend.get_json(path + "/publish", token, "POST")
-    except backend.BackendError as error:
-        raise backend.BackendError(error.status, f"Черновик №{draft['id']} создан. {error.message}") from error
-    return draft["id"]
+    path += f"/{worksheet_id}/draft" if worksheet_id else "/draft"
+    return go_json_response(lambda: backend.get_json(
+        path, request.COOKIES.get("go_session", ""),
+        "PUT" if worksheet_id else "POST", payload,
+    ))
 
 
 def builder_assignment_context(request, token):

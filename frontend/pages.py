@@ -61,7 +61,7 @@ def not_connected(request, title, active):
     })
 
 
-@require_http_methods(["GET", "POST"])
+@require_GET
 def teacher_builder(request):
     token = request.COOKIES.get("go_session", "")
     filters = {name: request.GET.get(name, "").strip()
@@ -70,18 +70,33 @@ def teacher_builder(request):
         profile = backend.get_json("/api/v1/me", token)
         if profile["role"] != "teacher":
             raise backend.BackendError(403, "Требуется роль преподавателя.")
-        if request.method == "POST":
-            worksheet_id = learning_ui.create_worksheet(request, token)
-            return redirect(f"/teacher/builder/?worksheet={worksheet_id}")
         builder = backend.get_teacher_builder(filters, token)
+        draft_id = request.GET.get("draft", "")
+        builder.update({"worksheet_id": 0, "revision": 0, "selected_tasks": [], "max_attempts": 1})
+        if draft_id:
+            if len(draft_id) > 19 or not draft_id.isascii() or not draft_id.isdecimal() or not 0 < int(draft_id) < 2**63:
+                raise Http404("Черновик не найден")
+            draft = backend.get_json(f"/api/v1/teacher/worksheets/{int(draft_id)}/draft", token)
+            builder.update({"worksheet_id": draft["id"], "revision": draft["revision"],
+                            "draft_title": draft["title"], "selected_tasks": draft["tasks"],
+                            "max_attempts": draft["max_attempts"]})
+        before = request.GET.get("before", "0")
+        if len(before) > 19 or not before.isascii() or not before.isdecimal() or not 0 <= int(before) < 2**63:
+            raise Http404("Страница не найдена")
+        worksheets = backend.get_json(f"/api/v1/teacher/worksheets?limit=20&before_id={int(before)}", token)["worksheets"]
+        drafts = [w for w in worksheets if w["status"] == "draft"]
+        next_before = worksheets[-1]["id"] if len(worksheets) == 20 else None
         assignment_context = learning_ui.builder_assignment_context(request, token)
     except backend.BackendError as error:
         return backend_error(request, error)
     builder["user_id"] = profile["id"]
-    return render(request, "teacher_builder.html", {
+    response = render(request, "teacher_builder.html", {
         "profile": profile, "live": True, "page_title": "Конструктор", "active_page": "builder",
-        "builder": builder, "filters": filters, **assignment_context,
+        "builder": builder, "filters": filters, "drafts": drafts, "next_before": next_before,
+        **assignment_context,
     })
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 @require_GET

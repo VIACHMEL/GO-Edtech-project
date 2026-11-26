@@ -12,7 +12,7 @@ from backend_client import get_teacher_groups, get_teacher_students
 from pages import index, register, teacher_builder, not_connected, solve
 from learning_ui import (
     assign_worksheet, teacher_assignments, student_assignments,
-    start_attempt, save_answer, submit_attempt,
+    start_attempt, save_answer, submit_attempt, save_worksheet,
 )
 
 
@@ -140,6 +140,7 @@ urlpatterns = [
     path("teacher/groups/", teacher_groups),
     path("teacher/reviews/", not_connected, {"title": "Проверка работ", "active": "reviews"}),
     path("teacher/builder/", teacher_builder),
+    path("teacher/builder/save/", save_worksheet),
     path("teacher/calendar/", not_connected, {"title": "Календарь + CRM", "active": "calendar"}),
     path("student/", account),
     path("student/calendar/", not_connected, {"title": "Календарь", "active": "calendar"}),

@@ -2,6 +2,13 @@
 {% load static %}
 {% block content %}
 <div class="page-heading"><div><h1>Конструктор вариантов</h1><p class="page-subtitle">Выберите задания и определите порядок</p></div><button class="button" type="button" id="builder-save" disabled>Сохранить черновик</button></div>
+<section aria-labelledby="saved-drafts">
+    <h2 class="section-title" id="saved-drafts">Мои черновики</h2>
+    <a href="/teacher/builder/">Новый вариант</a>
+    <ul>{% for draft in drafts %}<li><a href="?draft={{ draft.id }}">{{ draft.title }}</a></li>{% empty %}<li>На этой странице черновиков нет.</li>{% endfor %}</ul>
+    {% if next_before %}<a href="?before={{ next_before }}">Следующая страница вариантов</a>{% endif %}
+    <button class="secondary-button" type="button" id="builder-import" hidden>Перенести старый черновик из браузера</button>
+</section>
 {% if worksheet %}
     <section aria-labelledby="worksheet-published">
         <h2 class="section-title" id="worksheet-published">{{ worksheet.title }}</h2>
@@ -24,6 +31,7 @@
     <aside class="task-bank" aria-labelledby="bank-title">
         <h2 class="section-title" id="bank-title">Банк заданий</h2>
         <form method="get" action="/teacher/builder/">
+            <input type="hidden" name="draft" id="builder-filter-draft" value="{% if builder.worksheet_id %}{{ builder.worksheet_id }}{% endif %}">
             <label class="field-label">Предмет <input class="text-input" name="subject" value="{{ filters.subject }}"></label>
             <label class="field-label">Год <input class="text-input" type="number" min="0" name="year" value="{{ filters.year }}"></label>
             <label class="field-label">Номер <input class="text-input" type="number" min="0" name="task_number" value="{{ filters.task_number }}"></label>
@@ -59,13 +67,10 @@
         <p class="empty-state" id="builder-empty" hidden>Добавьте первое задание из банка слева.</p>
         <form method="post" action="/teacher/builder/" id="builder-publish" class="registration-form">
             {% csrf_token %}
-            <input type="hidden" name="title">
-            <input type="hidden" name="subject">
-            <input type="hidden" name="version_ids">
-            <label>Лимит попыток <input class="text-input" type="number" name="max_attempts" value="1" min="1" max="2147483647" required></label>
-            <button class="button" type="submit" disabled>Создать и опубликовать</button>
+            <label>Лимит попыток <input class="text-input" type="number" name="max_attempts" value="{{ builder.max_attempts }}" min="1" max="2147483647" required></label>
+            <button class="button" type="submit" disabled>Сохранить и опубликовать</button>
         </form>
-        <div class="editor-footer"><button class="secondary-button" id="builder-reset" type="button" disabled>Сбросить черновик</button><span class="save-status" id="builder-status" role="status">Черновик ещё не сохранён</span></div>
+        <div class="editor-footer"><button class="secondary-button" id="builder-reset" type="button" disabled>Отменить изменения</button><span class="save-status" id="builder-status" role="status">Черновик ещё не сохранён</span></div>
         <noscript><p class="prototype-note">Для добавления и перемещения заданий включите JavaScript.</p></noscript>
     </section>
 </div>

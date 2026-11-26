@@ -1,7 +1,5 @@
 const variant = JSON.parse(document.getElementById("variant-data").textContent);
-const live = typeof variant.status === "string";
-let canAnswer = live ? variant.can_answer : true;
-const answersKey = "go-edtech:answers:" + variant.id + ":v1";
+let canAnswer = variant.can_answer;
 const answerInput = document.getElementById("solve-answer");
 const solveStatus = document.getElementById("solve-status");
 const previousButton = document.getElementById("solve-previous");
@@ -17,39 +15,20 @@ const answers = {};
 const savedAnswers = new Map();
 const revisions = new Map();
 
-function restorePreviewDraft() {
-    try {
-        const savedText = localStorage.getItem(answersKey);
-        if (!savedText) return;
-        const saved = JSON.parse(savedText);
-        if (!saved.answers || typeof saved.answers !== "object" || Array.isArray(saved.answers)) {
-            throw new Error("Invalid answers");
-        }
-        for (const task of variant.tasks) {
-            if (typeof saved.answers[task.id] === "string") {
-                answers[task.id] = saved.answers[task.id].slice(0, 5000);
-            }
-        }
-        if (Number.isInteger(saved.current_index) && saved.current_index >= 0 && saved.current_index < variant.tasks.length) {
-            currentIndex = saved.current_index;
-        }
-        solveStatus.textContent = "Загружен черновик из этого браузера";
-    } catch {
-        solveStatus.textContent = "Локальный черновик недоступен. Можно решать без сохранения.";
-    }
+for (const task of variant.tasks) {
+    answers[task.id] = task.answer_text;
+    savedAnswers.set(task.id, task.answer_text);
+    revisions.set(task.id, task.answer_revision);
 }
-
-if (live) {
-    for (const task of variant.tasks) {
-        answers[task.id] = task.answer_text;
-        savedAnswers.set(task.id, task.answer_text);
-        revisions.set(task.id, task.answer_revision);
-    }
-    solveStatus.textContent = canAnswer ? "Ответы загружены с сервера" : "Ответы доступны для просмотра";
-} else {
-    solveStatus.textContent = "Ответы находятся только в открытой странице";
-    restorePreviewDraft();
+solveStatus.textContent = canAnswer ? "Ответы загружены с сервера" : "Ответы доступны для просмотра";
+function unsavedAnswers() {
+    return variant.tasks.some(task => answers[task.id] !== savedAnswers.get(task.id));
 }
+window.addEventListener("beforeunload", event => {
+    if (unsavedAnswers() || busy || boardContainer.dataset.pending === "true") {
+        event.preventDefault(); event.returnValue = "";
+    }
+});
 
 function updateNavigator() {
     for (const button of document.querySelectorAll("[data-task-index]")) {
@@ -104,15 +83,6 @@ previousButton.addEventListener("click", function () {
 nextButton.addEventListener("click", function () {
     if (currentIndex < variant.tasks.length - 1) showTask(currentIndex + 1);
 });
-function savePreviewDraft() {
-    try {
-        localStorage.setItem(answersKey, JSON.stringify({answers: answers, current_index: currentIndex}));
-        solveStatus.textContent = "Черновик сохранён только в этом браузере";
-    } catch (error) {
-        solveStatus.textContent = "Не удалось сохранить черновик. Ответы пока остаются в открытой странице.";
-    }
-}
-
 async function attemptRequest(path, body) {
     const headers = { "X-CSRFToken": document.querySelector("[name=csrfmiddlewaretoken]").value };
     const options = { method: "POST", headers };
@@ -138,7 +108,7 @@ async function saveAttemptAnswers() {
             text, expected_revision: revisions.get(task.id),
         });
         revisions.set(task.id, saved.answer_revision);
-        savedAnswers.set(task.id, text);
+        savedAnswers.set(task.id, saved.answer_text ?? text);
     }
 }
 
@@ -151,15 +121,12 @@ function updateControls() {
 }
 
 saveAnswersButton.addEventListener("click", async function () {
-    if (!live) {
-        savePreviewDraft();
-        return;
-    }
+    if (busy || !canAnswer) return;
     busy = true;
     updateControls();
     try {
         await saveAttemptAnswers();
-        solveStatus.textContent = "Ответы сохранены";
+        solveStatus.textContent = unsavedAnswers() ? "Есть несохранённые ответы" : "Ответы сохранены на сервере";
     } catch (error) {
         solveStatus.textContent = error.message;
     } finally {
@@ -186,11 +153,7 @@ finishDialog.addEventListener("cancel", function (event) {
     if (busy) event.preventDefault();
 });
 document.getElementById("solve-confirm").addEventListener("click", async function () {
-    if (!live) {
-        finishDialog.close();
-        solveStatus.textContent = "Предпросмотр завершения: ответов " + answeredCount() + " из " + variant.tasks.length + ". На сервер ничего не отправлено. Черновик можно сохранить отдельно.";
-        return;
-    }
+    if (busy || !canAnswer) return;
     if (boardContainer.dataset.pending === "true") {
         document.getElementById("finish-summary").textContent = "Дождитесь подтверждения сохранения рисунка перед сдачей.";
         return;
