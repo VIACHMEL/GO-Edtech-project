@@ -6,9 +6,7 @@ cd "$(dirname "$0")"
 root="$PWD"
 python="$root/frontend/.venv/bin/python"
 
-for command in go initdb pg_ctl psql createdb; do
-    command -v "$command" >/dev/null || { echo "Не найдена команда: $command"; exit 1; }
-done
+command -v go >/dev/null || { echo "Не найдена команда: go"; exit 1; }
 [[ -x "$python" ]] || { echo "Сначала подготовьте frontend/.venv по frontend/README.md"; exit 1; }
 
 # Проверяем порты до запуска, чтобы не оставить лишние процессы.
@@ -42,6 +40,9 @@ trap 'exit 143' TERM
 
 # При заданном DATABASE_URL используем вашу готовую БД без миграций.
 if [[ -z "${DATABASE_URL:-}" ]]; then
+    for command in initdb pg_ctl psql createdb; do
+        command -v "$command" >/dev/null || { echo "Не найдена команда: $command"; exit 1; }
+    done
     mkdir -p data/postgres-socket
     chmod 700 data/postgres-socket
     if [[ ! -f data/postgres/PG_VERSION ]]; then
@@ -67,9 +68,9 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
     export DATABASE_URL="postgres:///edtech_dev?host=$root/data/postgres-socket&port=15439&user=edtech_local&sslmode=disable"
 fi
 
-export BACKEND_ADDR=127.0.0.1:8080
+export BACKEND_ADDR="${BACKEND_ADDR:-127.0.0.1:8080}"
 export GO_API_BASE_URL=http://127.0.0.1:8080
-export BOARD_ORIGIN=http://127.0.0.1:8080
+export BOARD_ORIGIN="${BOARD_ORIGIN:-http://127.0.0.1:8080}"
 export DJANGO_PROXY_URL=http://127.0.0.1:8000
 export UPLOAD_DIR="${UPLOAD_DIR:-$root/data/uploads}"
 
@@ -78,7 +79,7 @@ mkdir -p bin
 (cd backend && go build -o "$root/bin/edtech-server" ./cmd/server)
 bin/edtech-server &
 go_pid=$!
-(cd frontend && exec "$python" manage.py runserver 127.0.0.1:8000 --noreload) &
+(cd frontend && exec "$python" manage.py runserver 127.0.0.1:8000 --noreload --insecure) &
 django_pid=$!
 
 echo "Сайт: http://127.0.0.1:8080/login/ — остановка: Ctrl+C"

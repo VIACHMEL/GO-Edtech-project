@@ -10,8 +10,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Служебный ключ Django: новый при каждом запуске, не хранится в файлах.
 SECRET_KEY = get_random_secret_key()
 
-DEBUG = True
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
+DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() == "true"
+ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]").split(",")
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
 
