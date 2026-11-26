@@ -7,9 +7,12 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 
+	"github.com/VIACHMEL/GO-Edtech-project/backend/internal/boardhttp"
 	"github.com/VIACHMEL/GO-Edtech-project/backend/internal/db"
 )
 
@@ -163,6 +166,16 @@ func main() {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 			photos(w, r, store, sessionStore, uploadRoot)
 		})
+	}
+
+	boardhttp.Register(mux, store, boardActor(store, sessionStore), os.Getenv("BOARD_ORIGIN"))
+	if djangoURL := os.Getenv("DJANGO_PROXY_URL"); djangoURL != "" {
+		target, err := url.Parse(djangoURL)
+		if err != nil || target.Scheme != "http" || target.Hostname() != "127.0.0.1" ||
+			target.User != nil || target.Path != "" || target.RawQuery != "" || target.Fragment != "" {
+			log.Fatal("DJANGO_PROXY_URL must be a local HTTP origin")
+		}
+		mux.Handle("/", httputil.NewSingleHostReverseProxy(target))
 	}
 
 	log.Printf("HTTP-сервер: %s", addr)

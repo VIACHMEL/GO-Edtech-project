@@ -4,6 +4,7 @@ const draftKey = "go-edtech:builder:" + builderData.user_id + ":v2";
 const titleInput = document.getElementById("variant-title");
 const selectedList = document.getElementById("selected-tasks");
 const builderStatus = document.getElementById("builder-status");
+const publishForm = document.getElementById("builder-publish");
 let selectedIds = builderData.selected_ids.slice();
 
 function findTask(id) {
@@ -52,6 +53,7 @@ function renderSelectedTasks() {
         selectedList.append(row);
     }
     document.getElementById("builder-empty").hidden = selectedIds.length !== 0;
+    publishForm.querySelector("button").disabled = selectedIds.length === 0;
     document.getElementById("builder-summary").textContent = selectedIds.length + " заданий";
     for (const button of document.querySelectorAll("[data-add-task]")) {
         const selected = selectedIds.includes(button.dataset.addTask);
@@ -87,6 +89,22 @@ try {
     builderStatus.textContent = "Локальный черновик недоступен. Можно работать без сохранения.";
 }
 renderSelectedTasks();
+
+publishForm.addEventListener("submit", function (event) {
+    const selected = selectedIds.map(findTask);
+    const versions = selected.map((task) => task?.current_version_id);
+    const subject = selected[0]?.subject;
+    if (!titleInput.value.trim() || !subject || selected.some((task) => task?.subject !== subject) ||
+        versions.some((id) => !Number.isSafeInteger(id) || id <= 0)) {
+        event.preventDefault();
+        builderStatus.textContent = "Укажите название и выберите задания одного предмета.";
+        return;
+    }
+    publishForm.elements.title.value = titleInput.value.trim();
+    publishForm.elements.subject.value = subject;
+    publishForm.elements.version_ids.value = JSON.stringify(versions);
+    publishForm.querySelector("button").disabled = true;
+});
 
 for (const button of document.querySelectorAll("[data-add-task]")) {
     button.addEventListener("click", function () {

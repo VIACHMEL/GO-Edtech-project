@@ -9,7 +9,11 @@ import backend_client as backend
 from pages import login, logout, account, backend_error
 
 from backend_client import get_teacher_groups, get_teacher_students
-from pages import index, register, teacher_builder, not_connected
+from pages import index, register, teacher_builder, not_connected, solve
+from learning_ui import (
+    assign_worksheet, teacher_assignments, student_assignments,
+    start_attempt, save_answer, submit_attempt,
+)
 
 
 @require_GET
@@ -139,8 +143,13 @@ urlpatterns = [
     path("teacher/calendar/", not_connected, {"title": "Календарь + CRM", "active": "calendar"}),
     path("student/", account),
     path("student/calendar/", not_connected, {"title": "Календарь", "active": "calendar"}),
-    path("student/assignments/", not_connected, {"title": "Задания и варианты", "active": "assignments"}),
+    path("student/assignments/", student_assignments),
     path("student/comments/", not_connected, {"title": "Комментарии", "active": "comments"}),
     path("student/statistics/", not_connected, {"title": "Статистика", "active": "statistics"}),
-    path("solve/", not_connected, {"title": "Решение варианта", "active": "assignments"}),
+    path("solve/", solve),
+    path("teacher/assignments/", teacher_assignments),
+    path("teacher/assignments/issue/", assign_worksheet),
+    path("student/assignments/<int:assignment>/start/", start_attempt),
+    path("solve/attempt/<int:attempt>/answer/<int:item>/", save_answer),
+    path("solve/attempt/<int:attempt>/submit/", submit_attempt),
 ]

@@ -144,6 +144,26 @@ func currentUser(r *http.Request, store *db.DB, sessions *sessions) (*db.User, e
 	return user, err
 }
 
+// Only the board routes accept the HttpOnly session cookie used by Django.
+// Browser WebSockets cannot attach an Authorization header.
+func boardActor(store *db.DB, sessions *sessions) func(*http.Request) (int64, bool) {
+	return func(r *http.Request) (int64, bool) {
+		if r.Header.Get("Authorization") == "" {
+			cookie, err := r.Cookie("go_session")
+			if err != nil {
+				return 0, false
+			}
+			r = r.Clone(r.Context())
+			r.Header.Set("Authorization", "Bearer "+cookie.Value)
+		}
+		user, err := currentUser(r, store, sessions)
+		if err != nil {
+			return 0, false
+		}
+		return user.ID, true
+	}
+}
+
 func logout(w http.ResponseWriter, r *http.Request, sessions *sessions) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	sessions.mu.Lock()

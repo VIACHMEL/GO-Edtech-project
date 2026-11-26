@@ -69,6 +69,8 @@ fi
 
 export BACKEND_ADDR=127.0.0.1:8080
 export GO_API_BASE_URL=http://127.0.0.1:8080
+export BOARD_ORIGIN=http://127.0.0.1:8080
+export DJANGO_PROXY_URL=http://127.0.0.1:8000
 export UPLOAD_DIR="${UPLOAD_DIR:-$root/data/uploads}"
 
 # Запускаем собранный Go, чтобы Ctrl+C остановил именно сервер, без дочернего go run.
@@ -79,6 +81,6 @@ go_pid=$!
 (cd frontend && exec "$python" manage.py runserver 127.0.0.1:8000 --noreload) &
 django_pid=$!
 
-echo "Сайт: http://127.0.0.1:8000/login/ — остановка: Ctrl+C"
+echo "Сайт: http://127.0.0.1:8080/login/ — остановка: Ctrl+C"
 # Если один сервер завершится, завершаем и второй.
 wait -n "$go_pid" "$django_pid"

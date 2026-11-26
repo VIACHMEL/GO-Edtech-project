@@ -2,11 +2,14 @@
 
 
 from django.conf import settings
+from django.contrib.staticfiles import finders
+from django.http import Http404
 from django.middleware.csrf import rotate_token
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
 import backend_client as backend
+import learning_ui
 
 
 @require_GET
@@ -58,21 +61,48 @@ def not_connected(request, title, active):
     })
 
 
-@require_GET
+@require_http_methods(["GET", "POST"])
 def teacher_builder(request):
     token = request.COOKIES.get("go_session", "")
     filters = {name: request.GET.get(name, "").strip()
                for name in ("subject", "year", "task_number", "task_type", "limit")}
     try:
         profile = backend.get_json("/api/v1/me", token)
+        if profile["role"] != "teacher":
+            raise backend.BackendError(403, "Требуется роль преподавателя.")
+        if request.method == "POST":
+            worksheet_id = learning_ui.create_worksheet(request, token)
+            return redirect(f"/teacher/builder/?worksheet={worksheet_id}")
         builder = backend.get_teacher_builder(filters, token)
+        assignment_context = learning_ui.builder_assignment_context(request, token)
     except backend.BackendError as error:
         return backend_error(request, error)
     builder["user_id"] = profile["id"]
     return render(request, "teacher_builder.html", {
         "profile": profile, "live": True, "page_title": "Конструктор", "active_page": "builder",
-        "builder": builder, "filters": filters,
+        "builder": builder, "filters": filters, **assignment_context,
     })
+
+
+@require_GET
+def solve(request):
+    attempt = request.GET.get("attempt", "")
+    if not attempt:
+        return redirect("/student/assignments/")
+    if not attempt.isascii() or not attempt.isdecimal() or len(attempt) > 19:
+        raise Http404("Попытка не найдена")
+    try:
+        variant = backend.get_json(f"/api/v1/attempts/{int(attempt)}/solve", request.COOKIES.get("go_session", ""))
+    except backend.BackendError as error:
+        if error.status == 404:
+            raise Http404("Попытка не найдена") from error
+        return backend_error(request, error)
+    response = render(request, "solve.html", {
+        "variant": variant,
+        "board_assets_ready": bool(finders.find("solve-board/dist/solve-board.js")),
+    })
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 def backend_error(request, error):

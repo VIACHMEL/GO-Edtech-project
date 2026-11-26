@@ -44,9 +44,13 @@ func (db *DB) learningTx(ctx context.Context, actor int64, role string, action f
 	return worksheetError(tx.Commit(ctx))
 }
 
-func scanAssignment(row pgx.Row) (*Assignment, error) {
+func scanAssignment(row pgx.Row, includeTitle bool) (*Assignment, error) {
 	a := new(Assignment)
-	err := row.Scan(&a.ID, &a.WorksheetID, &a.StudentID, &a.AssignedBy, &a.GroupID, &a.DistributionID, &a.DueAt, &a.Status, &a.AssignedAt, &a.MaxAttempts)
+	fields := []any{&a.ID, &a.WorksheetID, &a.StudentID, &a.AssignedBy, &a.GroupID, &a.DistributionID, &a.DueAt, &a.Status, &a.AssignedAt, &a.MaxAttempts}
+	if includeTitle {
+		fields = append(fields, &a.WorksheetTitle)
+	}
+	err := row.Scan(fields...)
 	if err != nil {
 		return nil, worksheetError(err)
 	}
@@ -58,7 +62,7 @@ func assignmentForActor(ctx context.Context, tx pgx.Tx, actor, id int64) (*Assig
 	a, err := scanAssignment(tx.QueryRow(ctx, "SELECT "+assignmentColumns+` FROM assignments a
  WHERE a.id=$1 AND (a.student_id=$2 OR (a.assigned_by=$2 AND EXISTS(
  SELECT 1 FROM teacher_students ts WHERE ts.teacher_id=$2 AND ts.student_id=a.student_id AND ts.status='active')))
- FOR UPDATE`, id, actor))
+ FOR UPDATE`, id, actor), false)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +143,7 @@ func (db *DB) distributeWorksheet(ctx context.Context, teacher, worksheet int64,
 			return err
 		}
 		for rows.Next() {
-			a, err := scanAssignment(rows)
+			a, err := scanAssignment(rows, false)
 			if err != nil {
 				rows.Close()
 				return err
@@ -200,7 +204,7 @@ func (db *DB) distributeWorksheet(ctx context.Context, teacher, worksheet int64,
 			students = append(students, id)
 		}
 		for _, id := range students {
-			a, err := scanAssignment(tx.QueryRow(ctx, "INSERT INTO assignments(worksheet_id,student_id,assigned_by,group_id,distribution_id,due_at,max_attempts) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING "+assignmentColumns, worksheet, id, teacher, group, distribution, due, w.MaxAttempts))
+			a, err := scanAssignment(tx.QueryRow(ctx, "INSERT INTO assignments(worksheet_id,student_id,assigned_by,group_id,distribution_id,due_at,max_attempts) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING "+assignmentColumns, worksheet, id, teacher, group, distribution, due, w.MaxAttempts), false)
 			if err != nil {
 				return err
 			}
@@ -239,13 +243,15 @@ func (db *DB) listAssignments(ctx context.Context, actor int64, role string, bef
 		if role == "teacher" {
 			filter = "assigned_by=$1 AND EXISTS(SELECT 1 FROM teacher_students ts WHERE ts.teacher_id=$1 AND ts.student_id=assignments.student_id AND ts.status='active')"
 		}
-		rows, err := tx.Query(ctx, "SELECT "+assignmentColumns+" FROM assignments WHERE "+filter+" AND ($2::bigint=0 OR id<$2) ORDER BY id DESC LIMIT $3", actor, before, limit)
+		rows, err := tx.Query(ctx, "SELECT "+assignmentColumns+`,
+ (SELECT title FROM worksheets WHERE id=assignments.worksheet_id)
+ FROM assignments WHERE `+filter+" AND ($2::bigint=0 OR id<$2) ORDER BY id DESC LIMIT $3", actor, before, limit)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
-			a, err := scanAssignment(rows)
+			a, err := scanAssignment(rows, true)
 			if err != nil {
 				return err
 			}
