@@ -1,5 +1,5 @@
 export function indexElements(elements) {
-    return new Map(elements.map((element) => [element.id, element]));
+    return new Map(Array.from(elements, (element) => [element.id, element]));
 }
 
 // Excalidraw changes these values when an element is edited, removed or restored.

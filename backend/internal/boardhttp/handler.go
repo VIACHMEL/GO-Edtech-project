@@ -14,16 +14,21 @@ import (
 type Actor func(*http.Request) (int64, bool)
 
 type Handler struct {
-	store  *db.DB
-	actor  Actor
-	origin string
-	rooms  rooms
+	store    *db.DB
+	actor    Actor
+	origin   string
+	dataRoot string
+	rooms    rooms
 }
 
-func Register(mux *http.ServeMux, store *db.DB, actor Actor, origin string) {
-	h := &Handler{store: store, actor: actor, origin: origin}
+func Register(mux *http.ServeMux, store *db.DB, actor Actor, origin, dataRoot string) {
+	h := &Handler{store: store, actor: actor, origin: origin, dataRoot: dataRoot}
 	mux.HandleFunc("GET /api/v1/attempts/{id}/solve", h.solve)
+	mux.HandleFunc("GET /api/v1/attempts/{id}/items/{item_id}/materials/{artifact_id}", h.conditionMaterial)
+	mux.HandleFunc("GET /api/v1/teacher/task-versions/{id}/materials/{artifact_id}", h.conditionMaterial)
 	mux.HandleFunc("GET /ws/boards/{id}", h.upgrade)
+	mux.HandleFunc("GET /api/v1/boards/{id}/files/{file}", h.getFile)
+	mux.HandleFunc("PUT /api/v1/boards/{id}/files/{file}", h.putFile)
 }
 
 type boardRef struct {
@@ -32,6 +37,7 @@ type boardRef struct {
 }
 
 type solveTask struct {
+	TaskPresentation
 	ID       int64     `json:"id"`
 	Title    string    `json:"title"`
 	Kind     string    `json:"kind"`
@@ -104,9 +110,20 @@ func (h *Handler) solve(w http.ResponseWriter, r *http.Request) {
 	}
 	result := solvePage{ID: attempt.ID, Title: attempt.Title, Status: attempt.Status,
 		CanAnswer: attempt.CanAnswer, IsTeacher: attempt.IsTeacher, Tasks: make([]solveTask, 0, len(attempt.Tasks))}
+	versions := make([]int64, 0, len(attempt.Tasks))
+	for _, task := range attempt.Tasks {
+		versions = append(versions, task.VersionID)
+	}
+	conditions, err := h.store.TaskConditions(r.Context(), versions)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
 	for _, task := range attempt.Tasks {
 		item := solveTask{ID: task.ItemID, Title: fmt.Sprintf("Позиция %d", task.Position),
-			Prompt: task.Prompt, Answer: task.Answer, Revision: task.Revision}
+			Prompt: task.Prompt, Answer: task.Answer, Revision: task.Revision,
+			TaskPresentation: PresentCondition(conditions[task.VersionID],
+				fmt.Sprintf("/api/v1/attempts/%d/items/%d/materials/", id, task.ItemID))}
 		if task.Part != nil {
 			item.Kind = fmt.Sprintf("Часть %d", *task.Part)
 		}

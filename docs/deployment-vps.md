@@ -157,6 +157,326 @@ systemctl restart edtech-stage-go
 
 Порядок нового релиза: проверить целевой SHA и тесты, создать архив из проверенного main, сохранить текущую версию кода и конфигурации, создать резервные копии БД и uploads, подготовить сборку в отдельной директории, согласовать миграции и короткое окно обслуживания, переключить только службы EdTech, проверить GET/health/статику и пользовательские сценарии. Не копировать локальную `.env`, `.venv`, данные PostgreSQL и не повторять уже применённые миграции. Миграции в новой версии проверять отдельно; откат кода не гарантирует совместимость с новой схемой. Отдельный автоматизированный скрипт обновления и rollback пока не созданы.
 
+### Релиз банка ЕГЭ по информатике
+
+Порядок выпуска: отправить `update_kege_parser` на GitHub → принять PR №24 в
+`main` → открыть и слить PR с банком ЕГЭ → собрать архив из SHA слияния →
+подготовить сборку на VPS → сохранить резервную копию → применить миграции →
+импортировать 270 задач → переключить службы → проверить сайт по HTTPS.
+
+#### Что вошло в релиз
+
+| Изменение | Причина и реализация |
+| --- | --- |
+| Отбор и импорт КЕГЭ | ID не определяет номер задания. Импортёр читает номер из ответа КЕГЭ, отсеивает дубликаты, проверяет материалы и набирает по 10 задач на номер. Для №20 и №21 поддерживает ссылки на подзадачи вида `31516:20`. Файлы хранятся под `DATA_ROOT`, в БД записываются относительный путь, размер и SHA-256. |
+| Условия и материалы | Обычного текста не хватает для картинок и таблиц. Миграция `000013_task_conditions` добавляет разметку к версии задачи и заполняет её из метаданных текущих версий КЕГЭ. Go оставляет разрешённые теги и подставляет защищённые ссылки. Каталог и решалка показывают условия без выдачи эталонных ответов и решений. |
+| Сохранение ответа | Старая вкладка могла прочитать CSRF из HTML до повторного входа. Решалка берёт актуальный токен перед сохранением и сохраняет введённый текст в поле при отказе сервера или конфликте ревизий. |
+| Доска | PR №24 добавил ревизии объектов, восстановление черновика и досылку операции с тем же ID, загрузку PNG/JPEG и экспорт. Его миграция `000012_board_sync` меняет схему доски, API и собранная статика обновляются вместе. Импортёр размечает №1–23 как общую доску и №24–27 как отдельные. Существующие снимки с явно заданной частью сохраняются. |
+
+Локально проверены 270 заданий, 158 файлов, пять примеров в пользовательском варианте и полный сценарий из 27 позиций в браузере. Проверены сохранение после обновления CSRF, конфликт ревизий, обрыв и восстановление доски, сдача. Миграцию проверили на заполненной БД и с нуля. Результаты относятся к локальной среде.
+
+#### GitHub · PowerShell на рабочем компьютере
+
+Ветка `update_kege_parser` уже содержит проверенный коммит `245c35f` из [PR №24](https://github.com/VIACHMEL/GO-Edtech-project/pull/24). Её можно отправить на GitHub, пока №24 в Draft. Открывайте PR с банком ЕГЭ после принятия №24 в `main`, чтобы diff содержал только изменения банка и интеграции.
+
+Из корня репозитория проверьте ветку и сравните её с актуальным `main`. Если в `origin/main` появились изменения в миграциях или тех же модулях, сначала разберите пересечения в PR.
+
+```powershell
+if ((git branch --show-current) -ne 'update_kege_parser') { throw 'Ожидалась ветка update_kege_parser' }
+git status --short
+git fetch origin
+if ($LASTEXITCODE -ne 0) { throw 'Не удалось обновить origin' }
+git log --oneline --left-right HEAD...origin/main
+git diff --check
+$releasePaths = @(
+    'backend/README.md', 'backend/cmd/kompege',
+    'backend/cmd/server/main.go', 'backend/cmd/server/teacher.go',
+    'backend/internal/boardhttp', 'backend/internal/db/boards.go',
+    'backend/internal/db/tasks.go', 'backend/internal/db/task_conditions.go',
+    'backend/internal/db/migrations/000013_task_conditions.up.sql',
+    'backend/internal/db/migrations/000013_task_conditions.down.sql',
+    'docs/contracts/django-frontend.md', 'docs/deployment-vps.md',
+    'frontend/solve-board/README.md', 'frontend/static/solve.js',
+    'frontend/static/styles.css', 'frontend/templates/solve.html',
+    'frontend/templates/teacher_builder.html'
+)
+git add -- @releasePaths
+git diff --cached --check
+git diff --cached --stat
+git diff --cached --name-only
+```
+
+Проверьте список файлов перед коммитом. `.env`, `selected.tsv`, файлы заданий, дампы, окружение Python, `node_modules` и собранная статика передаются или собираются отдельно от Git.
+
+```powershell
+git commit -m "feat: добавить банк ЕГЭ и показ материалов заданий"
+if ($LASTEXITCODE -ne 0) { throw 'Коммит не создан' }
+git push -u origin update_kege_parser
+if ($LASTEXITCODE -ne 0) { throw 'Ветка не отправлена' }
+```
+
+После ревью снимите Draft у PR №24 и выберите **Create a merge commit**. Перед слиянием сверьте последний коммит №24 с `245c35f`. Если ветка доски получила новые правки, сначала подтяните их и повторите локальные проверки. После squash или rebase потребуется отдельно проверить историю и конфликты.
+
+```powershell
+git fetch origin
+if ($LASTEXITCODE -ne 0) { throw 'Не удалось обновить origin' }
+git merge-base --is-ancestor 245c35f origin/main
+if ($LASTEXITCODE -ne 0) { throw 'Проверенный коммит PR №24 ещё не включён в origin/main' }
+git diff --stat origin/main...HEAD
+gh pr create --base main --head update_kege_parser --fill
+```
+
+В PR проверьте `base: main` и `compare: update_kege_parser`. После ревью и обязательных проверок нажмите **Merge pull request** на GitHub и скопируйте полный SHA результата слияния. Для создания PR без CLI можно открыть страницу сравнения. [Сравнить ветки](https://github.com/VIACHMEL/GO-Edtech-project/compare/main...update_kege_parser) · [Создание PR через gh](https://cli.github.com/manual/gh_pr_create) · [Слияние PR](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/merging-a-pull-request)
+
+После слияния соберите архив именно из этого SHA. Подставьте свой SSH-адрес. Передайте код и список ID, а материалы скачает импортёр на VPS.
+
+```powershell
+git fetch origin
+if ($LASTEXITCODE -ne 0) { throw 'Не удалось обновить origin' }
+$sha = 'ПОЛНЫЙ_SHA_ИЗ_СЛИТОГО_PR'
+if ($sha -notmatch '^[0-9a-f]{40}$') { throw 'Укажите полный SHA' }
+git merge-base --is-ancestor $sha origin/main
+if ($LASTEXITCODE -ne 0) { throw 'SHA отсутствует в истории origin/main' }
+foreach ($migration in @('000012_board_sync.up.sql', '000013_task_conditions.up.sql')) {
+    git cat-file -e "${sha}:backend/internal/db/migrations/$migration"
+    if ($LASTEXITCODE -ne 0) { throw "В SHA нет нужной миграции $migration" }
+}
+$archive = "edtech-$sha.tar.gz"
+$manifest = 'data/raw/kompege-selection-20261126-100849/selected.tsv'
+$vps = 'root@АДРЕС_VPS'
+git archive --format=tar.gz --output=$archive $sha
+if ($LASTEXITCODE -ne 0) { throw 'Архив не создан' }
+scp $archive "${vps}:/root/$archive"
+if ($LASTEXITCODE -ne 0) { throw 'Архив не передан' }
+scp $manifest "${vps}:/root/edtech-$sha-selected.tsv"
+if ($LASTEXITCODE -ne 0) { throw 'Список ID не передан' }
+```
+
+#### Подготовка и выкладка · Bash на VPS
+
+Начните с проверки схемы стенда по разделам 2, 4 и 7. Блоки ниже рассчитаны на текущие пути `/opt/go-edtech-stage`, БД `edtech_stage_db` и службы `edtech-stage-*`. Выполняйте их в одной root-сессии Bash. Остановитесь при расхождениях с инвентаризацией и запланируйте окно обслуживания. Перезапуск Go завершит текущие сеансы.
+
+```bash
+set -euo pipefail
+sha='ПОЛНЫЙ_SHA_ИЗ_СЛИТОГО_PR'
+[[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+app=/opt/go-edtech-stage
+release="$app/releases/$sha"
+db=edtech_stage_db
+envfile=/etc/edtech-stage/app.env
+data=/var/lib/edtech-stage/task-data
+manifest="/root/edtech-$sha-selected.tsv"
+archive="/root/edtech-$sha.tar.gz"
+export PATH="/opt/edtech-toolchain/go/bin:/opt/edtech-toolchain/node/bin:$PATH"
+systemctl show -p User -p WorkingDirectory -p ExecStart -p EnvironmentFiles \
+  edtech-stage-go edtech-stage-django
+df -h "$app" /var/lib/edtech-stage
+[[ "$(gzip -dc "$archive" | git get-tar-commit-id)" = "$sha" ]]
+test -f "$envfile"
+test -f "$app/frontend/config/edtech_vps_settings.py"
+test -f "$manifest"
+systemd-run --quiet --wait --pipe --collect --uid=edtechstage \
+  -p "EnvironmentFile=$envfile" /usr/bin/python3 -c '
+import os
+import sys
+from urllib.parse import unquote, urlsplit
+dsn = urlsplit(os.environ["DATABASE_URL"])
+if dsn.scheme not in {"postgres", "postgresql"} or dsn.hostname not in {"localhost", "127.0.0.1", "::1"} or unquote(dsn.path) != "/" + sys.argv[1]:
+    sys.exit("DATABASE_URL does not point to the expected local EdTech database")
+' "$db"
+```
+
+Подготовьте сборку до остановки служб. Версия Gunicorn соответствует описанному стенду. Сборка Django берёт локальные настройки HTTPS из действующего стенда.
+
+```bash
+test ! -e "$release"
+install -d -m 0755 "$release/bin"
+tar --no-same-owner -xzf "$archive" -C "$release"
+install -m 0644 "$app/frontend/config/edtech_vps_settings.py" \
+  "$release/frontend/config/edtech_vps_settings.py"
+chown -R edtechstage:edtechstage "$release"
+runuser -u edtechstage -- env PATH="$PATH" bash -ec '
+  cd "$1/backend"
+  go build -o "$1/bin/edtech-server" ./cmd/server
+  go build -o "$1/bin/kompege" ./cmd/kompege
+  cd "$1/frontend/solve-board"
+  npm ci --no-audit --no-fund
+  npm run build
+  cd ..
+  python3 -m venv .venv
+  .venv/bin/python -m pip install -r requirements.txt gunicorn==27.0.1
+  .venv/bin/python -m pip check
+' bash "$release"
+systemd-run --quiet --wait --pipe --collect --uid=edtechstage \
+  --working-directory="$release/frontend" -p "EnvironmentFile=$envfile" \
+  "$release/frontend/.venv/bin/python" manage.py check
+systemd-run --quiet --wait --pipe --collect --uid=edtechstage \
+  --working-directory="$release/frontend" -p "EnvironmentFile=$envfile" \
+  "$release/frontend/.venv/bin/python" manage.py collectstatic --noinput
+test -s "$release/frontend/staticfiles/solve-board/dist/solve-board.js"
+caddy_user="$(systemctl show -p User --value caddy)"
+runuser -u "${caddy_user:-root}" -- test -r \
+  "$release/frontend/staticfiles/solve-board/dist/solve-board.js"
+```
+
+Проверьте переданный список. Для первого выпуска `DATA_ROOT` задан отдельным файлом настроек службы Go. Если он уже задан в `app.env` или другом override, согласуйте один общий путь для службы и импортёра, прежде чем продолжать.
+
+```bash
+awk -F '\t' '
+  { sub(/\r$/, "") }
+  NR==1 { if ($1!="number" || $2!="source_ref" || $3!="materials") exit 1; next }
+  NF!=3 || $1 !~ /^[0-9]+$/ || $1<1 || $1>27 ||
+    $2 !~ /^[0-9]+(:(20|21))?$/ || $3 !~ /^[0-9]+$/ || seen[$2]++ { exit 1 }
+  { count[$1]++; files+=$3 }
+  END { if (NR!=271 || files!=158) exit 1
+        for (i=1;i<=27;i++) if (count[i]!=10) exit 1 }
+' "$manifest"
+mapfile -t ids < <(tail -n +2 "$manifest" | cut -f2)
+test "${#ids[@]}" -eq 270
+override=/etc/systemd/system/edtech-stage-go.service.d/20-task-data.conf
+test ! -e "$override"
+test ! -e "$app/frontend.before-$sha"
+test ! -e "$app/bin/edtech-server.before-$sha"
+```
+
+Следующий блок поддерживает стенд после `000011` или после `000012_board_sync`. Если стенд ещё до `000012_board_sync`, заранее согласуйте восстановление снимка БД в окно обслуживания. Миграция удаляет прежний столбец операций доски. После её применения бинарник до PR №24 несовместим со схемой. Блок сначала проверяет схему, затем останавливает только службы EdTech и создаёт резервную копию.
+
+```bash
+schema="$(runuser -u postgres -- psql -XAt -d "$db" -v ON_ERROR_STOP=1 -c "
+SELECT EXISTS(SELECT FROM information_schema.columns
+ WHERE table_schema='public' AND table_name='worksheets' AND column_name='revision'),
+       EXISTS(SELECT FROM information_schema.columns
+ WHERE table_schema='public' AND table_name='task_versions' AND column_name='condition_html'),
+       to_regclass('public.board_files') IS NOT NULL,
+       EXISTS(SELECT FROM information_schema.columns
+ WHERE table_schema='public' AND table_name='board_operations' AND column_name='payload_digest');")"
+migrations=()
+case "$schema" in
+  't|f|f|f') migrations+=(-f "$release/backend/internal/db/migrations/000012_board_sync.up.sql") ;;
+  't|f|t|t') ;;
+  *) printf 'Неожиданная схема БД: %s\n' "$schema" >&2; exit 1 ;;
+esac
+systemctl stop edtech-stage-go edtech-stage-django
+umask 077
+backup="$(mktemp -d "/var/backups/edtech-stage/release-${sha:0:12}-XXXXXXXX")"
+printf 'Резервная копия: %s\n' "$backup"
+runuser -u postgres -- pg_dump -Fc -d "$db" > "$backup/db.dump"
+pg_restore -l "$backup/db.dump" > "$backup/db.list"
+test -s "$backup/db.list"
+cp -a "$envfile" "$backup/app.env"
+storage=(uploads)
+if [[ -d "$data" ]]; then storage+=(task-data); fi
+tar -cpf "$backup/files.tar" -C /var/lib/edtech-stage "${storage[@]}"
+tar -tf "$backup/files.tar" > "$backup/files.list"
+test -s "$backup/files.list"
+printf '%s\n' "$schema" > "$backup/schema-before.txt"
+migrations+=(-f "$release/backend/internal/db/migrations/000013_task_conditions.up.sql")
+runuser -u postgres -- psql -X -d "$db" -v ON_ERROR_STOP=1 --single-transaction \
+  "${migrations[@]}"
+if [[ ! -d "$data" ]]; then install -d -o edtechstage -g edtechstage -m 0750 "$data"; fi
+```
+
+#### Импорт 270 заданий и проверка
+
+Запустите импорт из той же root-сессии. В случае разрыва SSH восстановите переменные
+из первого блока Bash и укажите напечатанный путь `backup`. Пока служба
+`edtech-kompege-<12 символов SHA>` активна, дождитесь завершения. Если прежний
+журнал уже содержит 270 сохранений, сразу переходите к сверке. При повторе
+команда снова читает ID из TSV. Миграции пропускаются.
+
+```bash
+test -s "$backup/db.dump"
+mapfile -t ids < <(tail -n +2 "$manifest" | cut -f2)
+test "${#ids[@]}" -eq 270
+log="$(mktemp "$backup/kompege-XXXXXXXX.log")"
+printf 'Журнал импорта: %s\n' "$log"
+systemd-run --quiet --wait --pipe --collect --uid=edtechstage \
+  --unit="edtech-kompege-${sha:0:12}" \
+  -p "EnvironmentFile=$envfile" --setenv="DATA_ROOT=$data" \
+  "$release/bin/kompege" "${ids[@]}" > "$log" 2>&1
+test "$(grep -c '^Сохранено:' "$log")" -eq 270
+```
+
+Импорт идёт последовательно и может занять несколько минут. При остановке на ошибке проверьте журнал и причину. Успешные записи остаются в PostgreSQL. Перед возобновлением сверьте уже записанные ID и сохранённые файлы. Следующая проверка сравнивает все строки TSV с текущими версиями и проверяет файлы по SHA-256.
+
+```bash
+{
+  printf 'CREATE TEMP TABLE expected(number int, source_ref text, materials int);\n'
+  printf '%s\n' "COPY expected FROM STDIN WITH (FORMAT csv, DELIMITER E'\\t', HEADER true);"
+  awk '{ sub(/\r$/, ""); print }' "$manifest"
+  printf '\\.\n'
+  cat <<'SQL'
+DO $check$
+BEGIN
+  IF EXISTS (
+    SELECT FROM expected e
+    LEFT JOIN tasks t ON t.source_url='https://kompege.ru/api/v1/task/'||replace(e.source_ref,':','#')
+      AND t.exam_type='ege' AND t.subject='informatics' AND t.task_number=e.number
+    LEFT JOIN task_versions v ON v.id=t.current_version_id AND v.task_id=t.id
+    WHERE v.id IS NULL OR btrim(v.content_text)='' OR btrim(v.answer)='' OR v.condition_html=''
+       OR (SELECT count(*) FROM task_artifacts a WHERE a.task_version_id=v.id
+             AND a.status='done' AND a.storage_type='local')<>e.materials
+  ) THEN RAISE EXCEPTION 'Квота, версии или материалы расходятся с TSV'; END IF;
+END
+$check$;
+SELECT replace(a.checksum,'sha256:','')||'  '||a.file_path
+FROM expected e JOIN tasks t
+  ON t.source_url='https://kompege.ru/api/v1/task/'||replace(e.source_ref,':','#')
+JOIN task_artifacts a ON a.task_version_id=t.current_version_id
+WHERE a.status='done' AND a.storage_type='local';
+SQL
+} | runuser -u postgres -- psql -XqAt -d "$db" -v ON_ERROR_STOP=1 > "$backup/materials.sha256"
+test "$(wc -l < "$backup/materials.sha256")" -eq 158
+awk '$1 !~ /^[0-9a-f]+$/ || length($1)!=64 ||
+       $2 !~ /^kompege\/[0-9]+\/[0-9a-f]+\.[a-z0-9]+$/ || NF!=2 {exit 1}' \
+  "$backup/materials.sha256"
+( cd "$data"; sha256sum --status -c "$backup/materials.sha256" )
+```
+
+#### Переключение служб и приёмка
+
+Переключите стабильные пути служб и Caddy на подготовленную сборку. Старые каталоги и бинарник сохраняются рядом для отката. Python-окружение остаётся по абсолютному пути, где его создали. После `umask 077` задайте права каталога override явно.
+
+```bash
+install -d -m 0755 "$(dirname "$override")"
+printf '[Service]\nEnvironment=DATA_ROOT=%s\n' "$data" > "$override"
+mv -T "$app/frontend" "$app/frontend.before-$sha"
+ln -sT "$release/frontend" "$app/frontend"
+mv -T "$app/bin/edtech-server" "$app/bin/edtech-server.before-$sha"
+ln -sT "$release/bin/edtech-server" "$app/bin/edtech-server"
+systemctl daemon-reload
+systemctl start edtech-stage-django edtech-stage-go
+systemctl is-active edtech-stage-django edtech-stage-go
+curl -fsS https://edtech.promodetector.top/health
+curl -fsS -o /dev/null https://edtech.promodetector.top/login/
+curl -fsS -o /dev/null https://edtech.promodetector.top/static/solve-board/dist/solve-board.js
+```
+
+На HTTPS войдите отдельным тестовым преподавателем. В каталоге проверьте №1 с картинкой, №2 с таблицей, №3 с картинками и файлом. Назначьте вариант тестовому ученику. Проверьте скачивание, сохранение ответа, доску через `wss://` и повторное открытие после обновления страницы. Локальные тестовые аккаунты и попытки не переносятся.
+
+**Откат.** Сначала прочитайте `schema-before.txt` из каталога резервной копии. При значении `t|f|t|t` прежняя версия уже совместима со схемой доски. Если новая версия ещё не переключена, можно запустить прежние службы. Если до релиза стояла версия без `000012_board_sync` и миграция прошла, прежний бинарник запускайте только после согласованного восстановления совместимой схемы из резервной копии. Down-миграция доски удаляет изображения и квитанции, поэтому автоматический откат БД исключён. Если переключение прервалось посередине, сначала сверьте фактические пути и возвращайте только заменённые компоненты.
+
+Для отката совместимой версии после полного переключения используйте следующий блок с теми же переменными:
+
+```bash
+[[ "$(cat "$backup/schema-before.txt")" == 't|f|t|t' ]]
+[[ "$(readlink "$app/frontend")" = "$release/frontend" ]]
+[[ "$(readlink "$app/bin/edtech-server")" = "$release/bin/edtech-server" ]]
+test -d "$app/frontend.before-$sha"
+test -x "$app/bin/edtech-server.before-$sha"
+test ! -e "$app/frontend.rejected-$sha"
+test ! -e "$app/bin/edtech-server.rejected-$sha"
+systemctl stop edtech-stage-go edtech-stage-django
+mv -T "$app/frontend" "$app/frontend.rejected-$sha"
+mv -T "$app/bin/edtech-server" "$app/bin/edtech-server.rejected-$sha"
+mv -T "$app/frontend.before-$sha" "$app/frontend"
+mv -T "$app/bin/edtech-server.before-$sha" "$app/bin/edtech-server"
+systemctl start edtech-stage-django edtech-stage-go
+curl -fsS https://edtech.promodetector.top/health
+```
+
+Расширенная схема и импорт остаются в БД. Восстановление из дампа или применение down-миграции решаются отдельно, так как могут удалить новые данные.
+
 ## 9. Открытые задачи и ограничения
 
 - P0: провести полный тест с отдельными тестовыми аккаунтами учителя и ученика, привязать ученика через API, проверить черновик, назначение, ответы, доску, сдачу и изоляцию доступа.

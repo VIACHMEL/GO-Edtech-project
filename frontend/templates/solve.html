@@ -32,7 +32,8 @@
                 <section class="solve-task-details" aria-labelledby="solve-task-title">
                     <p class="eyebrow" id="solve-task-kind"></p>
                     <h2 id="solve-task-title">{{ variant.tasks.0.title }}</h2>
-                    <p class="task-condition" id="solve-task-prompt">{{ variant.tasks.0.prompt }}</p>
+                    <div class="task-condition" id="solve-task-prompt">{{ variant.tasks.0.prompt }}</div>
+                    <ul class="task-materials" id="solve-materials" hidden></ul>
                     <label class="field-label" for="solve-answer">Ваш ответ или ход решения</label>
                     <textarea class="text-input solve-answer" id="solve-answer" rows="7" maxlength="5000" disabled></textarea>
                     <div class="solve-controls">

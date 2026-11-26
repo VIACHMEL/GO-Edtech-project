@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 
+	"github.com/VIACHMEL/GO-Edtech-project/backend/internal/boardhttp"
 	"github.com/VIACHMEL/GO-Edtech-project/backend/internal/db"
 	"github.com/VIACHMEL/GO-Edtech-project/backend/internal/teacherdata"
 )
@@ -172,14 +174,26 @@ func teacherTasks(w http.ResponseWriter, r *http.Request, store *db.DB, sessions
 		sendError(w, err)
 		return
 	}
+	versions := make([]int64, 0, len(tasks))
+	for _, task := range tasks {
+		versions = append(versions, task.CurrentVersionID)
+	}
+	conditions, err := store.TaskConditions(r.Context(), versions)
+	if err != nil {
+		sendError(w, err)
+		return
+	}
 	result := make([]map[string]any, 0, len(tasks))
 	for _, task := range tasks {
 		// Only public task fields: no answer, solution or parser metadata.
+		presentation := boardhttp.PresentCondition(conditions[task.CurrentVersionID],
+			fmt.Sprintf("/api/v1/teacher/task-versions/%d/materials/", task.CurrentVersionID))
 		result = append(result, map[string]any{
 			"id": task.ID, "current_version_id": task.CurrentVersionID,
 			"subject": task.Subject, "task_number": task.TaskNumber, "year": task.Year,
 			"task_type": task.TaskType, "content_text": task.ContentText,
 			"source_site": task.SourceSite, "source_url": task.SourceURL,
+			"condition_html": presentation.HTML, "materials": presentation.Materials,
 		})
 	}
 	sendJSON(w, 200, result)

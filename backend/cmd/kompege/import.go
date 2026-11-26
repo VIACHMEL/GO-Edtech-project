@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/http"
@@ -95,6 +96,9 @@ func isImageOnly(text string) bool {
 }
 
 func taskQualityProblem(task KompegeTask, prepared *db.Task) string {
+	if task.Hidden {
+		return "задание скрыто источником"
+	}
 	if strings.TrimSpace(task.Key) == "" {
 		return "отсутствует ответ в API"
 	}
@@ -118,7 +122,164 @@ func taskQualityProblem(task KompegeTask, prepared *db.Task) string {
 	return ""
 }
 
-func importRange(ctx context.Context, store *db.DB, client *http.Client, start, end int) error {
+func selectBank(ctx context.Context, client *http.Client, root, filename string, variants bool) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	var ids []int
+	seenIDs := make(map[int]bool)
+	for _, field := range strings.Fields(strings.TrimPrefix(string(data), "\ufeff")) {
+		id, err := strconv.Atoi(field)
+		if err != nil || id < 1 {
+			return fmt.Errorf("неверный ID в списке кандидатов: %q", field)
+		}
+		if !seenIDs[id] {
+			ids = append(ids, id)
+			seenIDs[id] = true
+		}
+	}
+
+	const target = 10
+	var counts [28]int
+	seenContent := make(map[[32]byte]bool)
+	seenTasks := make(map[string]bool)
+	accepted, rejected := 0, 0
+	defer func() {
+		for number := 1; number < len(counts); number++ {
+			fmt.Printf("COVERAGE\t%d\t%d\t%d\n", number, counts[number], target-counts[number])
+		}
+		fmt.Printf("Принято %d, отклонено %d\n", accepted, rejected)
+	}()
+	accept := func(source KompegeTask, number int) error {
+		id := source.ID
+		if id <= 0 || number < 1 || number >= len(counts) {
+			rejected++
+			fmt.Printf("Отклонён ID %d: отсутствует или вне №1–27\n", id)
+			return nil
+		}
+		ref := strconv.Itoa(id)
+		if number != source.Number {
+			ref += ":" + strconv.Itoa(number)
+		}
+		if counts[number] >= target || seenTasks[ref] {
+			return nil
+		}
+		seenTasks[ref] = true
+		task, err := prepareExamTask(source, number)
+		if err != nil {
+			rejected++
+			fmt.Printf("Отклонён ID %s (№%d): %v\n", ref, number, err)
+			return nil
+		}
+		materials, err := saveTaskMaterials(ctx, client, root, id, task)
+		if err != nil {
+			var httpErr *taskHTTPError
+			if errors.As(err, &httpErr) && (httpErr.Code == 403 || httpErr.Code == 429) {
+				return fmt.Errorf("отбор остановлен на материале ID %s: %w", ref, err)
+			}
+			rejected++
+			fmt.Printf("Отклонён ID %s (№%d): материал %v\n", ref, number, err)
+			return nil
+		}
+		// Одинаковые формулировки с разными входными данными — разные задачи.
+		content := strings.ToLower(strings.Join(strings.Fields(task.ContentText), " "))
+		hash := sha256.New()
+		fmt.Fprintf(hash, "%d:%s", number, content)
+		for _, m := range materials {
+			fmt.Fprintf(hash, "\n%s:%s", m.key, m.checksum)
+		}
+		var fingerprint [32]byte
+		hash.Sum(fingerprint[:0])
+		if seenContent[fingerprint] {
+			rejected++
+			fmt.Printf("Отклонён ID %s (№%d): дубликат условия и материалов\n", ref, number)
+			return nil
+		}
+		seenContent[fingerprint] = true
+		counts[number]++
+		accepted++
+		fmt.Printf("SELECTED\t%d\t%s\t%d\n", number, ref, len(materials))
+		return nil
+	}
+	for i, id := range ids {
+		if i > 0 {
+			time.Sleep(2 * time.Second)
+		}
+		var candidates []KompegeTask
+		if variants {
+			var variant struct {
+				AuthRequired bool          `json:"authRequired"`
+				RealMode     bool          `json:"realMode"`
+				Tasks        []KompegeTask `json:"tasks"`
+			}
+			if err := getSourceJSON(client, fmt.Sprintf("variant/kim/%d", id), &variant); err != nil {
+				var httpErr *taskHTTPError
+				var malformed *taskDecodeError
+				if (errors.As(err, &httpErr) && httpErr.Code == 404) || errors.As(err, &malformed) {
+					fmt.Printf("Пропущен КИМ %d: %v\n", id, err)
+					continue
+				}
+				return fmt.Errorf("отбор остановлен на КИМ %d: %w", id, err)
+			}
+			if variant.AuthRequired || variant.RealMode {
+				fmt.Printf("Пропущен КИМ %d: закрытый вариант\n", id)
+				continue
+			}
+			candidates = variant.Tasks
+		} else {
+			source, missing, err := fetchWithRetry(client, id)
+			if err != nil || missing {
+				var malformed *taskDecodeError
+				if missing || errors.As(err, &malformed) {
+					rejected++
+					fmt.Printf("Отклонён ID %d: отсутствует или ответ API повреждён\n", id)
+					continue
+				}
+				return fmt.Errorf("отбор остановлен на ID %d: %w", id, err)
+			}
+			candidates = []KompegeTask{source}
+		}
+		for _, candidate := range candidates {
+			if err := accept(candidate, candidate.Number); err != nil {
+				return err
+			}
+			if candidate.Number == 19 && !candidate.Hidden {
+				for _, sub := range candidate.SubTasks {
+					if sub.Number != 20 && sub.Number != 21 {
+						continue
+					}
+					if err := accept(candidate, sub.Number); err != nil {
+						return err
+					}
+				}
+			}
+			if accepted == target*(len(counts)-1) {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("кандидаты закончились до заполнения всех квот")
+}
+
+func importTask(ctx context.Context, store *db.DB, client *http.Client, root string, id int, task *db.Task) error {
+	materials, err := saveTaskMaterials(ctx, client, root, id, task)
+	if err != nil {
+		return err
+	}
+	saved, err := store.AddTask(ctx, task)
+	if err != nil {
+		return err
+	}
+	if err := storeTaskMaterials(ctx, store, saved.VersionID, materials); err != nil {
+		return fmt.Errorf("версия %d записана, повторите ID %d для сохранения артефактов: %w", saved.VersionID, id, err)
+	}
+	fmt.Printf("Сохранено: КЕГЭ %d -> БД %d, №%d, версия %d, материалов %d\n",
+		id, saved.TaskID, task.TaskNumber, saved.VersionID, len(materials))
+	return nil
+}
+
+func importRange(ctx context.Context, store *db.DB, client *http.Client, root string, start, end int) error {
 	if start < 1 || end < start {
 		return fmt.Errorf("неверный диапазон %d-%d", start, end)
 	}
@@ -192,7 +353,7 @@ func importRange(ctx context.Context, store *db.DB, client *http.Client, start, 
 					return err
 				}
 			} else {
-				if _, err := store.AddTask(ctx, prepared); err != nil {
+				if err := importTask(ctx, store, client, root, id, prepared); err != nil {
 					// Ошибка БД — критическая, прогресс не продвигаем.
 					return fmt.Errorf("сохранение ID %d: %w", id, err)
 				}

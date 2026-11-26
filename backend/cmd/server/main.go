@@ -172,7 +172,11 @@ func main() {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) { worksheetDraft(w, r, store, sessionStore) })
 	}
 
-	boardhttp.Register(mux, store, boardActor(store, sessionStore), os.Getenv("BOARD_ORIGIN"))
+	dataRoot := os.Getenv("DATA_ROOT")
+	if dataRoot == "" {
+		dataRoot = "../data/raw"
+	}
+	boardhttp.Register(mux, store, boardActor(store, sessionStore), os.Getenv("BOARD_ORIGIN"), dataRoot)
 	if djangoURL := os.Getenv("DJANGO_PROXY_URL"); djangoURL != "" {
 		target, err := url.Parse(djangoURL)
 		if err != nil || target.Scheme != "http" || target.Hostname() != "127.0.0.1" ||

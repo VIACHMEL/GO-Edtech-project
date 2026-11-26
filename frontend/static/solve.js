@@ -9,6 +9,8 @@ const finishButton = document.getElementById("solve-finish");
 const finishDialog = document.getElementById("finish-dialog");
 const boardContainer = document.getElementById("solve-board");
 const boardNavigationStatus = document.getElementById("solve-board-navigation-status");
+const prompt = document.getElementById("solve-task-prompt");
+const materials = document.getElementById("solve-materials");
 let currentIndex = 0;
 let busy = false;
 const answers = {};
@@ -57,7 +59,19 @@ function showTask(index) {
     const task = variant.tasks[currentIndex];
     document.getElementById("solve-task-kind").textContent = [task.topic, task.kind].filter(Boolean).join(" · ");
     document.getElementById("solve-task-title").textContent = "Задание " + (index + 1) + ". " + task.title;
-    document.getElementById("solve-task-prompt").textContent = task.prompt;
+    // condition_html генерирует Go из разрешённых тегов и локальных ссылок.
+    if (task.condition_html) prompt.innerHTML = task.condition_html;
+    else prompt.textContent = task.prompt;
+    materials.replaceChildren();
+    for (const material of task.materials || []) {
+        const item = document.createElement("li");
+        const link = document.createElement("a");
+        link.href = material.url;
+        link.textContent = material.name;
+        item.append(link);
+        materials.append(item);
+    }
+    materials.hidden = !materials.childElementCount;
     answerInput.value = answers[task.id] || "";
     answerInput.disabled = !canAnswer || busy;
     previousButton.disabled = index === 0;
@@ -84,7 +98,11 @@ nextButton.addEventListener("click", function () {
     if (currentIndex < variant.tasks.length - 1) showTask(currentIndex + 1);
 });
 async function attemptRequest(path, body) {
-    const headers = { "X-CSRFToken": document.querySelector("[name=csrfmiddlewaretoken]").value };
+    const cookie = document.cookie.split(";").map(value => value.trim())
+        .find(value => value.startsWith("csrftoken="));
+    const token = cookie ? cookie.slice("csrftoken=".length)
+        : document.querySelector("[name=csrfmiddlewaretoken]").value;
+    const headers = { "X-CSRFToken": token };
     const options = { method: "POST", headers };
     if (body !== undefined) {
         headers["Content-Type"] = "application/json";
@@ -94,7 +112,9 @@ async function attemptRequest(path, body) {
     if (!response.ok) {
         const message = response.status === 409
             ? "Попытка или ответ изменились. Обновите страницу перед сохранением."
-            : "Не удалось сохранить данные. Попробуйте ещё раз.";
+            : [401, 403, 404].includes(response.status)
+                ? "Сеанс изменился или доступ потерян. Войдите в нужный аккаунт в другой вкладке и повторите. Введённый текст остался здесь."
+                : "Не удалось сохранить данные. Попробуйте ещё раз.";
         throw new Error(message);
     }
     return response.json();
