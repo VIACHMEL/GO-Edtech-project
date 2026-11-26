@@ -57,8 +57,8 @@ docker compose -p edtech-local exec -T postgres pg_isready -U "$POSTGRES_USER" -
     set -euo pipefail
     tables="$(docker compose -p edtech-local exec -T postgres psql -XAt -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_tables WHERE schemaname='public'")"
     [[ "$tables" == 0 ]] || { echo 'STOP: БД не пуста; миграции вручную'; exit 1; }
-    cat backend/internal/db/migrations/*.up.sql |
-        docker compose -p edtech-local exec -T postgres psql -X -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 --single-transaction
+    for file in backend/internal/db/migrations/*.up.sql; do cat "$file"; printf '\n'; done |
+        docker compose -p edtech-local exec -T postgres psql -X -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 --single-transaction -f -
 )
 ~~~
 
@@ -116,7 +116,7 @@ fi
 git fetch origin && bash -c "$(git show origin/main:deploy.sh)" deploy.sh --plan
 ~~~
 
-Если обновлённый deploy.sh уже есть в рабочей копии, обычный процесс после слияния PR:
+Для самой выкладки без переключения ветки аналогично выполнить `git fetch origin && bash -c "$(git show origin/main:deploy.sh)" deploy.sh` и подтвердить SHA. Если обновлённый deploy.sh уже есть в рабочей копии, обычный процесс после слияния PR:
 
 ~~~bash
 bash deploy.sh --plan
