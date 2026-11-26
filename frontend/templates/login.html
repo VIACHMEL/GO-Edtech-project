@@ -13,10 +13,11 @@
     {% if error %}<p role="alert">{{ error }}</p>{% endif %}
     <form method="post" class="registration-form">
         {% csrf_token %}
-        <label>Email <input class="text-input" name="email" type="email" autocomplete="username" required></label>
+        <label>Логин или email <input class="text-input" name="email" type="text" autocomplete="username" required></label>
         <label>Пароль <input class="text-input" name="password" type="password" autocomplete="current-password" maxlength="128" required></label>
         <button class="button">Войти</button>
     </form>
+    <a class="text-link" href="/register/">Создать аккаунт</a>
 </main>
 </body>
 </html>

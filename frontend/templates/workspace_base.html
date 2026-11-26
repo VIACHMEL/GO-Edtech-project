@@ -22,7 +22,7 @@
 
             <div class="sidebar-bottom">
                 <div class="profile">
-                    <span class="avatar" aria-hidden="true">{% if live %}{{ profile.name|slice:":1" }}{% else %}{{ profile.initials }}{% endif %}</span>
+                    <span class="avatar" aria-hidden="true">{{ profile.name|slice:":1" }}</span>
                     <div class="profile-info"><p class="profile-name">{{ profile.name }}</p><p class="profile-subject">{{ profile.subject }}</p></div>
                 </div>
             </div>
@@ -31,9 +31,7 @@
         <div class="page">
             <header class="topbar">
                 <span>{{ workspace_label|default:"Кабинет преподавателя" }} <span class="breadcrumb-separator" aria-hidden="true">/</span> <span class="topbar-current">{{ page_title }}</span></span>
-                {% if live %}
                 <form method="post" action="/logout/">{% csrf_token %}<button class="secondary-button">Выйти</button></form>
-                {% else %}<span class="demo-label">Демонстрационные данные</span>{% endif %}
             </header>
 
             <main id="main" class="main" tabindex="-1">

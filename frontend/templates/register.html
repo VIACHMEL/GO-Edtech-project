@@ -1,6 +1,30 @@
 {% load static %}
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>Регистрация · GO</title><link rel="stylesheet" href="{% static 'styles.css' %}"></head><body>
-<main class="registration-page"><a class="public-brand" href="/">GO</a><h1>Создать аккаунт</h1><p class="page-subtitle">Единое пространство преподавателя и ученика</p>
-<form id="registration-form" class="registration-form"><label class="field-label" for="registration-name">Имя</label><input class="text-input" id="registration-name" type="text" autocomplete="name" required maxlength="100"><label class="field-label" for="registration-email">Email</label><input class="text-input" id="registration-email" type="email" autocomplete="email" required maxlength="254"><label class="field-label" for="registration-password">Пароль</label><input class="text-input" id="registration-password" type="password" autocomplete="new-password" required minlength="8" maxlength="128"><p class="field-hint">Не менее 8 символов</p><fieldset class="role-choice"><legend>Я хочу использовать платформу как</legend><label><input type="radio" name="role" value="student" checked> Студент</label><label><input type="radio" name="role" value="teacher"> Преподаватель</label></fieldset><button class="button full-width" id="registration-check" type="button" disabled>Проверить данные</button></form>
-<p class="prototype-note">Демонстрация формы. Аккаунт не создаётся, пароль не отправляется и не сохраняется.</p><p class="inline-result" id="registration-result" hidden role="status"></p><noscript><p class="prototype-note">Для проверки формы включите JavaScript.</p></noscript><a class="text-link" href="/">К обзору прототипа →</a></main>
-<script src="{% static 'register.js' %}" defer></script></body></html>
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Регистрация · GO</title>
+    <link rel="stylesheet" href="{% static 'styles.css' %}">
+</head>
+<body>
+<main class="registration-page">
+    <h1>Создать аккаунт</h1>
+    {% if error %}<p role="alert">{{ error }}</p>{% endif %}
+    <form method="post" class="registration-form">
+        {% csrf_token %}
+        <label>Имя <input class="text-input" name="name" value="{{ fields.name }}" autocomplete="name" required maxlength="100"></label>
+        <label>Email <input class="text-input" name="email" value="{{ fields.email }}" type="email" autocomplete="email" required maxlength="254"></label>
+        <label>Пароль <input class="text-input" name="password" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></label>
+        <p class="field-hint">Не менее 8 символов</p>
+        <fieldset class="role-choice">
+            <legend>Роль</legend>
+            <label><input type="radio" name="role" value="student"{% if fields.role == 'student' %} checked{% endif %} required> Ученик</label>
+            <label><input type="radio" name="role" value="teacher"{% if fields.role == 'teacher' %} checked{% endif %}> Преподаватель</label>
+        </fieldset>
+        <button class="button" type="submit">Зарегистрироваться</button>
+    </form>
+    <a class="text-link" href="/login/">Уже есть аккаунт? Войти</a>
+</main>
+</body>
+</html>

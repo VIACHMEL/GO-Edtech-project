@@ -1,63 +1,6 @@
 {% extends "teacher_base.html" %}
 {% block content %}
-{% if live %}
 <div class="page-heading"><h1>{{ profile.name }}</h1></div>
 <p>{{ profile.email }}</p>
 <p>Расписание и работы пока не подключены.</p>
-{% else %}
-                <div class="page-heading">
-                    <div>
-                        <h1>{{ overview.date }}</h1>
-                        <p class="page-subtitle">{{ overview.date_detail }}</p>
-                    </div>
-                    <a class="button" href="/teacher/builder/"><span class="plus-sign" aria-hidden="true">+</span> Создать вариант</a>
-                </div>
-
-                <section class="next-lesson" aria-labelledby="next-title">
-                    <h2 class="section-title" id="next-title">Следующее занятие</h2>
-                    {% if overview.next_lesson %}
-                    <div class="next-lesson-body">
-                        <div class="next-time">{{ overview.next_lesson.time }}<span>{{ overview.next_lesson.end_time }}</span></div>
-                        <div class="next-info">
-                            <h3>{{ overview.next_lesson.student }}</h3>
-                            <p class="lesson-topic">{{ overview.next_lesson.topic }}</p>
-                            <p class="lesson-meta">{{ overview.next_lesson.subject }}<span aria-hidden="true"> · </span>{{ overview.next_lesson.format }}</p>
-                        </div>
-                        <a class="text-link" href="{{ overview.next_lesson.url }}">Открыть календарь <span aria-hidden="true">→</span></a>
-                    </div>
-                    {% else %}
-                    <p class="empty-state">Нет запланированных занятий.</p>
-                    {% endif %}
-                </section>
-
-                <section class="section" aria-labelledby="schedule-title">
-                    <div class="section-heading"><h2 class="section-title" id="schedule-title">Расписание</h2><a class="text-link" href="/teacher/calendar/">Весь календарь <span aria-hidden="true">→</span></a></div>
-                    <div class="schedule-head" aria-hidden="true"><span>Время</span><span>Ученик / группа</span><span>Статус</span><span></span></div>
-                    <ul class="schedule">
-                        {% for lesson in overview.lessons %}
-                        <li>
-                            <a class="schedule-row{% if lesson.is_finished %} finished{% endif %}" href="{{ lesson.url }}">
-                                <div class="schedule-time">{{ lesson.time }}<span>{{ lesson.end_time }}</span></div>
-                                <div class="schedule-details"><h3>{{ lesson.student }}</h3><p>{{ lesson.subject }} <span aria-hidden="true">·</span> {{ lesson.topic }}</p></div>
-                                <span class="lesson-status{% if lesson.is_next %} status-next{% endif %}"><span class="status-dot" aria-hidden="true"></span>{{ lesson.status }}</span>
-                                <span class="row-arrow" aria-hidden="true">→</span>
-                            </a>
-                        </li>
-                        {% empty %}
-                        <li class="empty-state">На сегодня нет занятий.</li>
-                        {% endfor %}
-                    </ul>
-                </section>
-
-                <section class="section" aria-labelledby="attention-title">
-                    <div class="section-heading"><h2 class="section-title" id="attention-title">Требует внимания</h2></div>
-                    <ul class="attention-list">
-                        {% for item in overview.attention %}
-                        <li><a class="attention-row" href="{{ item.url }}"><span class="attention-title">{{ item.title }}</span><span class="attention-description">{{ item.description }}</span><span class="attention-count">{{ item.count }}</span><span class="row-arrow" aria-hidden="true">→</span></a></li>
-                        {% empty %}
-                        <li class="empty-state">Нет задач, требующих внимания.</li>
-                        {% endfor %}
-                    </ul>
-                </section>
-{% endif %}
 {% endblock %}

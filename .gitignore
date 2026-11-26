@@ -46,3 +46,5 @@ pipelines/shkolkovo/batch_local.py
 
 # Private photos uploaded through Go API
 data/uploads/
+data/postgres/
+data/postgres-socket/

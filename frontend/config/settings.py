@@ -30,7 +30,7 @@ STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-# Адрес будущего Go-сервера и время ожидания сетевой операции в секундах.
+# Адрес Go-сервера и время ожидания сетевой операции в секундах.
 BACKEND_BASE_URL = os.environ.get("GO_API_BASE_URL", "http://127.0.0.1:8080")
 BACKEND_TIMEOUT = 3
 

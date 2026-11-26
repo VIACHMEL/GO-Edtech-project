@@ -77,7 +77,12 @@ func login(w http.ResponseWriter, r *http.Request, store *db.DB, sessions *sessi
 		sendJSON(w, 401, map[string]string{"error": "Неверный email или пароль"})
 		return
 	}
-	credentials, err := store.GetUserByEmail(r.Context(), input.Email)
+	// Локальный логин без @ означает адрес <логин>@local.test.
+	email := strings.TrimSpace(input.Email)
+	if !strings.Contains(email, "@") {
+		email += "@local.test"
+	}
+	credentials, err := store.GetUserByEmail(r.Context(), email)
 	if err != nil && !errors.Is(err, db.ErrNotFound) && !errors.Is(err, db.ErrValidation) {
 		sendError(w, err)
 		return

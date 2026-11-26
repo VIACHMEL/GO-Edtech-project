@@ -9,10 +9,7 @@ import backend_client as backend
 from pages import login, logout, account, backend_error
 
 from backend_client import get_teacher_groups, get_teacher_students
-from pages import (
-    index, register, teacher_reviews, teacher_builder, teacher_calendar,
-    student_calendar, student_assignments, student_comments, student_statistics, solve,
-)
+from pages import index, register, teacher_builder, not_connected
 
 
 @require_GET
@@ -137,13 +134,13 @@ urlpatterns = [
     path("teacher/", account),
     path("teacher/students/", teacher_students),
     path("teacher/groups/", teacher_groups),
-    path("teacher/reviews/", teacher_reviews),
+    path("teacher/reviews/", not_connected, {"title": "Проверка работ", "active": "reviews"}),
     path("teacher/builder/", teacher_builder),
-    path("teacher/calendar/", teacher_calendar),
+    path("teacher/calendar/", not_connected, {"title": "Календарь + CRM", "active": "calendar"}),
     path("student/", account),
-    path("student/calendar/", student_calendar),
-    path("student/assignments/", student_assignments),
-    path("student/comments/", student_comments),
-    path("student/statistics/", student_statistics),
-    path("solve/", solve),
+    path("student/calendar/", not_connected, {"title": "Календарь", "active": "calendar"}),
+    path("student/assignments/", not_connected, {"title": "Задания и варианты", "active": "assignments"}),
+    path("student/comments/", not_connected, {"title": "Комментарии", "active": "comments"}),
+    path("student/statistics/", not_connected, {"title": "Статистика", "active": "statistics"}),
+    path("solve/", not_connected, {"title": "Решение варианта", "active": "assignments"}),
 ]
