@@ -1,0 +1,62 @@
+:root {
+  font-family: Inter, system-ui, sans-serif;
+  color: #18232a;
+  background: #f4f7f8;
+}
+body { margin: 0; }
+.topbar {
+  min-height: 68px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 28px;
+  background: #16312f;
+  color: #fff;
+}
+.topbar h1 { margin: 0; font-size: 20px; font-weight: 650; }
+.topbar nav { display: flex; gap: 6px; }
+.topbar a { padding: 8px 10px; color: inherit; border-radius: 6px; text-decoration: none; }
+.topbar a[aria-current] { background: #d4efdf; color: #14322b; }
+.workspace {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 22px;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 24px;
+}
+aside, .condition, .canvas { background: #fff; border: 1px solid #d7e0e4; border-radius: 10px; }
+aside { align-self: start; padding: 16px; }
+aside label, aside h2 { display: block; font-size: 14px; font-weight: 650; }
+aside h2 { margin: 22px 0 8px; }
+.attempt-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+aside button, aside select {
+  font: inherit;
+  font-size: 14px;
+  color: inherit;
+  border: 1px solid #bdcdcf;
+  border-radius: 6px;
+  background: #fff;
+  padding: 7px;
+}
+aside button:not(:disabled) { cursor: pointer; }
+aside button:disabled, aside select:disabled { opacity: .65; }
+.tasks { display: grid; gap: 6px; }
+.tasks button { display: flex; justify-content: space-between; gap: 7px; }
+.tasks button span + span { color: #465d5f; }
+.tasks button[aria-current] { border-color: #318365; background: #e7f5ed; }
+aside .submit { margin-top: 16px; color: white; background: #24634e; border-color: #24634e; }
+.condition { padding: 16px 20px; }
+.condition p { margin: 7px 0 0; }
+.condition h2, .board-heading h2 { margin: 0; font-size: 17px; }
+.board-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 18px 0 8px; }
+.board-heading span { font-size: 13px; color: #465d5f; }
+.canvas { position: relative; height: max(470px, 62vh); overflow: hidden; }
+@media (max-width: 720px) {
+  .workspace { grid-template-columns: 1fr; padding: 12px; gap: 12px; }
+  .topbar { padding: 12px; }
+  .canvas { height: 60vh; min-height: 380px; }
+}
